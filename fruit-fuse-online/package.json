@@ -1,0 +1,11 @@
+{
+  "name": "core-below",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs",
+    "dev": "node server.mjs",
+    "test": "node tests/tutorial-smoke.mjs && node tests/outcome-smoke.mjs && node tests/scenario-smoke.mjs && node tests/roles-smoke.mjs"
+  }
+}
