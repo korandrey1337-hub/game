@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#080a0c">
+    <title>Core Below</title>
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <section class="boot-screen" id="bootScreen" aria-label="Главное меню">
+      <div class="boot-shade"></div>
+      <div class="boot-content">
+        <p class="eyebrow">КООПЕРАТИВНАЯ АВАРИЙНАЯ СМЕНА</p>
+        <h1>CORE<br><span>BELOW</span></h1>
+        <p class="boot-copy">Трое специалистов. Один реактор.<br>У каждого только часть решения.</p>
+
+        <div class="join-box">
+          <label>
+            <span>ПОЗЫВНОЙ</span>
+            <input id="nameInput" maxlength="18" autocomplete="nickname" placeholder="СТАЖЕР">
+          </label>
+          <label>
+            <span>КОД КОМНАТЫ</span>
+            <input id="roomInput" maxlength="6" autocomplete="off" placeholder="ПУСТО = НОВАЯ КОМНАТА">
+          </label>
+          <div class="menu-actions">
+            <button id="joinButton" class="primary">ВОЙТИ В СМЕНУ</button>
+            <button id="tutorialButton">ОБУЧЕНИЕ</button>
+          </div>
+          <button id="statsOpenMenu" class="stats-menu-button">СТАТИСТИКА</button>
+          <p class="connection-status" id="connectionStatus" role="status" aria-live="polite"></p>
+        </div>
+      </div>
+    </section>
+
+    <main class="game-shell is-hidden" id="gameShell">
+      <header class="game-bar">
+        <div class="game-brand">CORE <span>BELOW</span></div>
+        <div class="status-role" id="roleName">НЕ В СЕТИ</div>
+        <div class="status-scenario" id="scenarioName">ОЖИДАНИЕ СМЕНЫ</div>
+        <div class="status-room">КОМНАТА <strong id="roomCode">-----</strong></div>
+        <div class="status-time" id="timer">--:--</div>
+        <div class="status-strikes">ОШИБКИ <strong id="strikes">0/3</strong></div>
+        <div class="module-dots" id="moduleDots" aria-label="Прогресс модулей"></div>
+        <button id="statsOpenGame" class="icon-button" title="Открыть статистику" aria-label="Открыть статистику">▥</button>
+        <button id="audioButton" class="icon-button" title="Выключить звук" aria-label="Выключить звук">♫</button>
+        <button id="menuButton" class="icon-button" title="Вернуться в меню" aria-label="Вернуться в меню">×</button>
+      </header>
+
+      <section class="arena-frame" aria-label="Игровая зона">
+        <div class="canvas-stage">
+          <canvas id="game" width="960" height="540" tabindex="0"></canvas>
+
+          <div class="station-label station-wires">
+            <i></i><span>ПРОВОДА</span>
+          </div>
+          <div class="station-label station-glyphs">
+            <i></i><span>ЗНАКИ</span>
+          </div>
+          <div class="station-label station-coolant">
+            <i></i><span>ОХЛАЖДЕНИЕ</span>
+          </div>
+
+          <section class="objective-card" id="tutorialCard" aria-live="polite"></section>
+
+          <section class="module-console" id="workPanel" hidden>
+            <header class="module-head">
+              <div>
+                <span id="consoleKicker">ТЕРМИНАЛ</span>
+                <h2 id="consoleTitle">МОДУЛЬ</h2>
+              </div>
+              <span class="key-help">КЛАВИШИ 1–4</span>
+            </header>
+            <div id="intelPanel" class="intel-content"></div>
+            <div id="actionPanel" class="action-grid"></div>
+          </section>
+
+          <div class="proximity-hint" id="proximityHint">WASD / СТРЕЛКИ — ДВИЖЕНИЕ</div>
+
+          <section class="end-overlay" id="endOverlay" hidden>
+            <span id="endKicker">СМЕНА ЗАВЕРШЕНА</span>
+            <h2 id="endTitle">РЕАКТОР СТАБИЛЕН</h2>
+            <p id="endReason"></p>
+            <div class="end-stats" id="endStats"></div>
+            <div class="end-actions">
+              <button id="endButton" class="primary">В МЕНЮ</button>
+              <button id="statsOpenEnd">СТАТИСТИКА</button>
+            </div>
+          </section>
+        </div>
+
+        <div class="story-line" id="storyLine" aria-live="polite">
+          <strong>СИСТЕМА</strong>
+          <span>Ожидание соединения...</span>
+        </div>
+      </section>
+
+      <section class="lobby" id="lobbyPanel">
+        <header>
+          <div>
+            <span>ПОДГОТОВКА</span>
+            <h2>ЭКИПАЖ</h2>
+          </div>
+          <p id="lobbyHint">Выберите роль. Для полной смены нужны три игрока.</p>
+        </header>
+        <div id="players" class="players"></div>
+        <div class="role-row" id="roleButtons"></div>
+        <button id="startButton" class="primary" disabled>НАЧАТЬ СМЕНУ</button>
+      </section>
+
+      <section class="relay" id="relayPanel">
+        <div class="relay-head">
+          <strong>СВЯЗЬ С ЭКИПАЖЕМ</strong>
+          <span id="crewCount">0 В СЕТИ</span>
+        </div>
+        <div id="log" class="log"></div>
+        <form id="chatForm" class="chat-form">
+          <input id="chatInput" maxlength="140" placeholder="СООБЩЕНИЕ КОМАНДЕ">
+          <button aria-label="Отправить">→</button>
+        </form>
+        <div class="quick-pings">
+          <button data-ping="Нужен сканер">НУЖЕН СКАНЕР</button>
+          <button data-ping="Нужно правило">НУЖНО ПРАВИЛО</button>
+          <button data-ping="Я у модуля">Я У МОДУЛЯ</button>
+        </div>
+      </section>
+
+      <div class="touch" aria-label="Сенсорное управление">
+        <button data-move="up" aria-label="Вверх">▲</button>
+        <button data-move="left" aria-label="Влево">◀</button>
+        <button data-move="down" aria-label="Вниз">▼</button>
+        <button data-move="right" aria-label="Вправо">▶</button>
+      </div>
+    </main>
+
+    <section class="stats-panel" id="statsPanel" aria-label="Личная статистика" hidden>
+      <div class="stats-backdrop" id="statsBackdrop"></div>
+      <article class="stats-dialog" role="dialog" aria-modal="true" aria-labelledby="statsTitle">
+        <header class="stats-header">
+          <div>
+            <span>ЛИЧНЫЙ АРХИВ</span>
+            <h2 id="statsTitle">СТАТИСТИКА СМЕН</h2>
+          </div>
+          <button id="statsCloseIcon" class="icon-button" aria-label="Закрыть статистику">×</button>
+        </header>
+        <div class="stats-summary" id="statsSummary"></div>
+        <div class="stats-details" id="statsDetails"></div>
+        <div class="stats-breakdown">
+          <section>
+            <h3>ЛОКАЦИИ</h3>
+            <div id="statsScenarios"></div>
+          </section>
+          <section>
+            <h3>РОЛИ</h3>
+            <div id="statsRoles"></div>
+          </section>
+        </div>
+        <section class="stats-history">
+          <h3>ПОСЛЕДНИЕ СМЕНЫ</h3>
+          <div id="statsHistory"></div>
+        </section>
+        <footer class="stats-footer">
+          <p>Данные этого игрока хранятся отдельно в текущем браузере.</p>
+          <button id="statsClose">ЗАКРЫТЬ</button>
+        </footer>
+      </article>
+    </section>
+
+    <script src="./runtime-config.js"></script>
+    <script src="./client.js" type="module"></script>
+  </body>
+</html>

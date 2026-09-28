@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: core-below
+    runtime: node
+    plan: free
+    region: frankfurt
+    buildCommand: npm install
+    startCommand: node server.mjs
+    healthCheckPath: /
