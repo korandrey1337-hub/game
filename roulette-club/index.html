@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Build Ways Duel Club</title>
+    <link rel="stylesheet" href="./styles.css?v=20261002-7" />
+    <link rel="stylesheet" href="./mobile.css?v=20261002-7" />
+    <script defer src="https://telegram.org/js/telegram-web-app.js"></script>
+  </head>
+  <body>
+    <main class="app-shell" data-online="false">
+      <canvas id="club-scene" aria-label="Игровой стол в клубе Build Ways Duel"></canvas>
+
+      <section class="topbar" aria-label="Настройки матча">
+        <div class="brand">
+          <span class="brand-mark"></span>
+          <div>
+            <p class="eyebrow">prototype build</p>
+            <h1>Build Ways Duel Club</h1>
+          </div>
+        </div>
+
+        <div class="match-controls">
+          <label>
+            <span>Игроки</span>
+            <select id="player-count">
+              <option value="2">2</option>
+              <option value="4">4</option>
+            </select>
+          </label>
+          <label>
+            <span>Скин</span>
+            <select id="weapon-skin">
+              <option value="revolver">Револьвер · 1 HP</option>
+              <option value="shotgun">Дробовик · 2 HP</option>
+            </select>
+          </label>
+          <button
+            id="music-toggle"
+            class="ghost-button audio-toggle"
+            type="button"
+            aria-label="Выключить музыку"
+            aria-pressed="true"
+            title="Музыка"
+          ><span aria-hidden="true">♪</span></button>
+          <button id="online-open" class="ghost-button online-open" type="button">Онлайн</button>
+          <button id="tutorial-open" class="ghost-button" type="button">Правила</button>
+          <button id="stats-open" class="ghost-button" type="button">Статы</button>
+          <button id="new-game" type="button">Новая игра</button>
+        </div>
+      </section>
+
+      <aside class="scoreboard" aria-label="Состояние игроков">
+        <div id="round-card" class="round-card"></div>
+        <div id="players" class="players"></div>
+        <div id="leaderboard" class="leaderboard" aria-label="Таблица лидеров"></div>
+      </aside>
+
+      <div id="event-toast" class="event-toast" role="status" aria-live="polite" hidden></div>
+
+      <section class="command-deck" aria-label="Команды игрока">
+        <div class="action-row">
+          <div class="turn-heading">
+            <p class="eyebrow">текущий ход</p>
+            <h2 id="turn-title">Загрузка...</h2>
+          </div>
+          <p id="turn-hint" class="turn-hint"></p>
+          <div id="peek-card" class="peek-card" hidden></div>
+          <p id="score-award" class="score-award" hidden></p>
+        </div>
+
+        <div class="items-strip">
+          <p class="strip-label">Предметы</p>
+          <div id="items"></div>
+        </div>
+
+        <div class="target-strip">
+          <p id="target-label" class="strip-label">Выбор</p>
+          <div id="targets"></div>
+        </div>
+
+        <ol id="battle-log" class="battle-log" aria-live="polite"></ol>
+      </section>
+
+      <section id="tutorial" class="tutorial" aria-label="Обучение" hidden>
+        <div class="tutorial-backdrop"></div>
+        <article class="tutorial-card" role="dialog" aria-modal="true" aria-labelledby="tutorial-title">
+          <p class="eyebrow">быстрый ввод</p>
+          <h2 id="tutorial-title"></h2>
+          <p id="tutorial-copy"></p>
+          <div class="tutorial-progress" id="tutorial-progress"></div>
+          <div class="tutorial-actions">
+            <button id="tutorial-skip" type="button">Пропустить</button>
+            <button id="tutorial-next" type="button">Дальше</button>
+          </div>
+        </article>
+      </section>
+
+      <section id="stats-panel" class="stats-panel" aria-label="Статистика игрока" hidden>
+        <div id="stats-backdrop" class="stats-backdrop"></div>
+        <article class="stats-dialog" role="dialog" aria-modal="true" aria-labelledby="stats-title">
+          <header class="stats-header">
+            <div>
+              <p class="eyebrow">личное досье</p>
+              <h2 id="stats-title">Статистика рулетки</h2>
+            </div>
+            <button id="stats-close-icon" class="stats-close-icon" type="button" aria-label="Закрыть статистику">×</button>
+          </header>
+          <div id="stats-summary" class="stats-summary"></div>
+          <div id="stats-details" class="stats-details"></div>
+          <footer class="stats-footer">
+            <p>Данные этой игры хранятся отдельно от остальных проектов.</p>
+            <button id="stats-close" type="button">Закрыть</button>
+          </footer>
+        </article>
+      </section>
+
+      <section id="online-panel" class="online-panel" aria-label="Онлайн-комната" hidden>
+        <div id="online-backdrop" class="online-backdrop"></div>
+        <article class="online-dialog" role="dialog" aria-modal="true" aria-labelledby="online-title">
+          <header class="online-header">
+            <div>
+              <p class="eyebrow">живой стол</p>
+              <h2 id="online-title">Онлайн-комната</h2>
+            </div>
+            <button id="online-close" class="stats-close-icon" type="button" aria-label="Закрыть онлайн-комнату">×</button>
+          </header>
+
+          <div id="online-entry" class="online-entry">
+            <label>
+              <span>Имя</span>
+              <input id="online-name" maxlength="18" autocomplete="nickname" placeholder="Твоё имя" />
+            </label>
+            <label>
+              <span>Код комнаты</span>
+              <input id="online-code-input" maxlength="5" autocomplete="off" autocapitalize="characters" placeholder="ABCDE" />
+            </label>
+            <div class="online-entry-actions">
+              <button id="online-create" type="button">Создать стол</button>
+              <button id="online-join" class="ghost-button" type="button">Войти по коду</button>
+            </div>
+          </div>
+
+          <div id="online-room" class="online-room" hidden>
+            <div class="online-room-bar">
+              <div>
+                <span>Комната</span>
+                <button id="online-copy-code" class="room-code" type="button" title="Скопировать код"></button>
+              </div>
+              <strong id="online-status">Подключение...</strong>
+            </div>
+
+            <div id="online-players" class="online-players"></div>
+
+            <div class="online-config">
+              <label>
+                <span>Мест</span>
+                <select id="online-player-count">
+                  <option value="2">2 игрока</option>
+                  <option value="4">4 игрока</option>
+                </select>
+              </label>
+              <label>
+                <span>Оружие</span>
+                <select id="online-weapon">
+                  <option value="revolver">Револьвер · 1 HP</option>
+                  <option value="shotgun">Дробовик · 2 HP</option>
+                </select>
+              </label>
+            </div>
+
+            <p id="online-hint" class="online-hint"></p>
+            <div class="online-room-actions">
+              <button id="online-leave" class="ghost-button" type="button">Выйти</button>
+              <button id="online-ready" class="ghost-button" type="button">Я готов</button>
+              <button id="online-start" type="button">Начать матч</button>
+            </div>
+          </div>
+
+          <p id="online-error" class="online-error" role="alert" hidden></p>
+        </article>
+      </section>
+
+      <section id="result-panel" class="result-panel" aria-label="Результат матча" hidden>
+        <div class="result-backdrop"></div>
+        <article id="result-card" class="result-card" role="dialog" aria-modal="true" aria-labelledby="result-title">
+          <div class="result-portrait" aria-hidden="true">
+            <span class="result-crown"></span>
+            <img id="result-character" alt="" />
+          </div>
+          <div class="result-copy">
+            <p id="result-kicker" class="eyebrow"></p>
+            <h2 id="result-title"></h2>
+            <p id="result-subtitle" class="result-subtitle"></p>
+            <div id="result-metrics" class="result-metrics"></div>
+            <div class="result-actions">
+              <button id="result-stats" class="ghost-button" type="button">Статистика</button>
+              <button id="result-replay" type="button">Реванш</button>
+            </div>
+          </div>
+        </article>
+      </section>
+    </main>
+
+    <audio
+      id="background-music"
+      src="./assets/audio/russian-roulette.mp3"
+      preload="none"
+      loop
+      playsinline
+    ></audio>
+
+    <script type="module" src="./src/main.js?v=20261002-7"></script>
+  </body>
+</html>
