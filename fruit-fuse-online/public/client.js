@@ -10,6 +10,10 @@ const gameShell = document.querySelector("#gameShell");
 const joinButton = document.querySelector("#joinButton");
 const tutorialButton = document.querySelector("#tutorialButton");
 const connectionStatus = document.querySelector("#connectionStatus");
+const tutorialGate = document.querySelector("#tutorialGate");
+const tutorialIntro = document.querySelector("#tutorialIntro");
+const tutorialIntroStart = document.querySelector("#tutorialIntroStart");
+const tutorialIntroBack = document.querySelector("#tutorialIntroBack");
 const menuButton = document.querySelector("#menuButton");
 const audioButton = document.querySelector("#audioButton");
 const startButton = document.querySelector("#startButton");
@@ -29,6 +33,9 @@ const consoleTitle = document.querySelector("#consoleTitle");
 const keyHelp = document.querySelector(".key-help");
 const lobbyPanel = document.querySelector("#lobbyPanel");
 const tutorialRoleBar = document.querySelector("#tutorialRoleBar");
+const tutorialModuleLabel = document.querySelector("#tutorialModuleLabel");
+const tutorialNextButton = document.querySelector("#tutorialNextButton");
+const tutorialStepElements = [...document.querySelectorAll("[data-tutorial-step]")];
 const workPanel = document.querySelector("#workPanel");
 const relayPanel = document.querySelector("#relayPanel");
 const players = document.querySelector("#players");
@@ -121,6 +128,9 @@ const SYMBOL_LABELS = {
   arrow: "СТРЕЛА"
 };
 
+const TUTORIAL_COMPLETE_KEY = "core-below:tutorial-complete:v1";
+const TUTORIAL_ROLE_ORDER = ["lookout", "scribe", "operator"];
+
 const input = { up: false, down: false, left: false, right: false };
 const releaseTimers = { up: null, down: null, left: null, right: null };
 let socket = null;
@@ -135,12 +145,15 @@ let pendingStatsDistance = 0;
 let statsActivityStartedAt = document.visibilityState === "visible" ? performance.now() : null;
 let symbolDraft = [];
 let audioManuallyMuted = false;
+let tutorialComplete = readTutorialComplete();
 
 const audio = createAudioEngine();
 const playerStats = new CoreBelowStats();
 playerStats.startSession();
+updateTutorialGate();
 
 joinButton.addEventListener("click", () => {
+  if (!tutorialComplete) return;
   audio.start();
   audio.play("ui");
   connect(false);
@@ -148,6 +161,13 @@ joinButton.addEventListener("click", () => {
 tutorialButton.addEventListener("click", () => {
   audio.start();
   audio.play("ui");
+  tutorialIntro.hidden = false;
+  tutorialIntroStart.focus();
+});
+tutorialIntroBack.addEventListener("click", closeTutorialIntro);
+tutorialIntro.querySelector(".tutorial-intro-backdrop").addEventListener("click", closeTutorialIntro);
+tutorialIntroStart.addEventListener("click", () => {
+  closeTutorialIntro();
   connect(true);
 });
 menuButton.addEventListener("click", showMenu);
@@ -165,7 +185,8 @@ statsCloseButtons.forEach(button => button.addEventListener("click", closeStatsP
 statsBackdrop.addEventListener("click", closeStatsPanel);
 endButton.addEventListener("click", () => {
   audio.play("ui");
-  if (state?.tutorial) showMenu();
+  if (state?.tutorial && state.phase === "lost") connect(true);
+  else if (state?.tutorial) showMenu();
   else send({ type: "start" });
 });
 canvas.addEventListener("pointerdown", () => canvas.focus());
@@ -187,14 +208,17 @@ pingButtons.forEach(button => {
   });
 });
 
-tutorialRoleBar.addEventListener("click", event => {
-  const button = event.target.closest("[data-tutorial-role]");
-  if (!button || !tutorialRoleBar.contains(button)) return;
+tutorialNextButton.addEventListener("click", () => {
+  const self = state?.players.find(player => player.id === selfId);
+  const currentIndex = TUTORIAL_ROLE_ORDER.indexOf(self?.role);
+  const nextRole = TUTORIAL_ROLE_ORDER[currentIndex + 1];
+  if (!state?.tutorial || !nextRole) return;
   audio.play("ui");
   releaseAllInput();
   symbolDraft = [];
   renderSymbolDraft();
-  send({ type: "tutorialRole", role: button.dataset.tutorialRole });
+  send({ type: "tutorialRole", role: nextRole });
+  canvas.focus();
 });
 
 symbolPalette.addEventListener("click", event => {
@@ -224,10 +248,9 @@ actionPanel.addEventListener("click", event => {
   const button = event.target.closest("[data-action]");
   if (!button || !actionPanel.contains(button)) return;
   const action = button.dataset.action;
-  if (action === "wire") send({ type: "interact", module: "wires", slot: Number(button.dataset.slot) });
-  if (action === "glyph") send({ type: "interact", module: "glyphs", slot: Number(button.dataset.slot) });
-  if (action === "coolant") send({ type: "interact", module: "coolant", action: "cycle", label: button.dataset.label });
-  if (action === "commit") send({ type: "interact", module: "coolant", action: "commit" });
+  if (["scan", "route"].includes(action)) send({ type: "interact", action });
+  if (action === "signal") send({ type: "interact", action, choice: button.dataset.choice });
+  if (action === "resolve") send({ type: "interact", action, choice: button.dataset.choice });
   audio.play("tool");
   canvas.focus();
 });
@@ -263,7 +286,11 @@ document.querySelectorAll("[data-move]").forEach(button => {
 });
 
 window.addEventListener("keydown", event => {
-  if (event.target instanceof HTMLInputElement) return;
+  if (event.target instanceof HTMLInputElement || event.target instanceof HTMLButtonElement) return;
+  if (event.code === "Escape" && !tutorialIntro.hidden) {
+    closeTutorialIntro();
+    return;
+  }
   if (event.code === "Escape" && !statsPanel.hidden) {
     closeStatsPanel();
     return;
@@ -321,6 +348,43 @@ setInterval(sendInput, 80);
 setInterval(flushStatsActivity, 15_000);
 requestAnimationFrame(draw);
 
+function readTutorialComplete() {
+  try {
+    return localStorage.getItem(TUTORIAL_COMPLETE_KEY) === "yes";
+  } catch {
+    return false;
+  }
+}
+
+function markTutorialComplete() {
+  if (tutorialComplete) return;
+  tutorialComplete = true;
+  try {
+    localStorage.setItem(TUTORIAL_COMPLETE_KEY, "yes");
+  } catch {
+    // The current session still unlocks online play when storage is unavailable.
+  }
+  updateTutorialGate();
+}
+
+function updateTutorialGate() {
+  joinButton.disabled = !tutorialComplete;
+  roomInput.disabled = !tutorialComplete;
+  joinButton.classList.toggle("primary", tutorialComplete);
+  tutorialButton.classList.toggle("primary", !tutorialComplete);
+  joinButton.textContent = tutorialComplete ? "ВОЙТИ В СМЕНУ" : "ОНЛАЙН ЗАКРЫТ";
+  tutorialButton.textContent = tutorialComplete ? "ПОВТОРИТЬ ОБУЧЕНИЕ" : "НАЧАТЬ ОБУЧЕНИЕ";
+  tutorialGate.classList.toggle("is-complete", tutorialComplete);
+  tutorialGate.textContent = tutorialComplete
+    ? "ОБУЧЕНИЕ ПРОЙДЕНО · ОНЛАЙН ДОСТУПЕН"
+    : "СНАЧАЛА ПРОЙДИТЕ КОРОТКОЕ ОБУЧЕНИЕ · ОНЛАЙН ОТКРОЕТСЯ АВТОМАТИЧЕСКИ";
+}
+
+function closeTutorialIntro() {
+  tutorialIntro.hidden = true;
+  tutorialButton.focus();
+}
+
 function connect(tutorial) {
   if (socket && socket.readyState <= WebSocket.OPEN) socket.close();
 
@@ -356,6 +420,7 @@ function connect(tutorial) {
       selfId = message.selfId;
       state = message.room;
       stateReceivedAt = performance.now();
+      if (state.tutorial && state.phase === "won") markTutorialComplete();
       trackPlayerStats(previousState, state, selfId);
       audio.sync(previousState, state, selfId);
       bootScreen.classList.add("is-hidden");
@@ -371,9 +436,9 @@ function connect(tutorial) {
   });
 
   socket.addEventListener("close", () => {
-    joinButton.disabled = false;
     tutorialButton.disabled = false;
     activeButton.textContent = oldText;
+    updateTutorialGate();
     if (!returningToMenu) {
       connectionStatus.textContent = "СЕРВЕР ИГРЫ НЕДОСТУПЕН. ПРОВЕРЬТЕ АДРЕС BACKEND.";
       addClientLine("Связь с сервером потеряна.", "danger");
@@ -399,11 +464,12 @@ function showMenu() {
   lastInput = {};
   audio.setScene("menu", null);
   closeStatsPanel();
+  tutorialIntro.hidden = true;
   connectionStatus.textContent = "";
   bootScreen.classList.remove("is-hidden");
   gameShell.classList.add("is-hidden");
-  joinButton.disabled = false;
   tutorialButton.disabled = false;
+  updateTutorialGate();
 }
 
 function send(payload) {
@@ -435,7 +501,7 @@ function trackPlayerStats(previous, next, ownId) {
 
   if (next.shiftId && ["won", "lost"].includes(next.phase)) {
     const progress = next.puzzleView?.progress;
-    const modulesSolved = [progress?.wiresSolved, progress?.glyphsSolved, progress?.coolantSolved].filter(Boolean).length;
+    const modulesSolved = progress?.resolvedCount || 0;
     playerStats.recordShiftResult({
       shiftId: next.shiftId,
       scenarioId: next.scenario?.id,
@@ -591,15 +657,13 @@ function renderUi() {
   canvasStage.style.setProperty("--scenario-bg", `url("${scenario?.background || "./assets/reactor-room-v2.png"}")`);
   canvasStage.dataset.scenario = scenario?.id || "reactor";
   canvasStage.classList.toggle("is-blind", state.phase === "playing" && self?.role === "operator");
-  timer.textContent = formatTime(state.timer);
-  strikes.textContent = `${state.mistakes}/${state.maxMistakes}`;
+  timer.textContent = state.tutorial ? "∞" : formatTime(state.timer);
+  strikes.textContent = state.tutorial ? "УЧЕБА" : `${state.mistakes}/${state.maxMistakes}`;
   crewCount.textContent = `${state.players.length} В СЕТИ`;
 
   lobbyPanel.hidden = !inLobby;
   tutorialRoleBar.hidden = !state.tutorial || state.phase !== "playing";
-  tutorialRoleBar.querySelectorAll("[data-tutorial-role]").forEach(button => {
-    button.setAttribute("aria-pressed", String(button.dataset.tutorialRole === self?.role));
-  });
+  if (!tutorialRoleBar.hidden) renderTutorialProgress(self, view);
   relayPanel.hidden = inLobby || state.phase !== "playing";
   const finished = ["won", "lost"].includes(state.phase);
   const won = state.phase === "won";
@@ -609,19 +673,27 @@ function renderUi() {
   endOverlay.classList.toggle("is-won", finished && won);
   endOverlay.classList.toggle("is-lost", finished && !won);
   if (!endOverlay.hidden) {
-    const completed = [view?.progress?.wiresSolved, view?.progress?.glyphsSolved, view?.progress?.coolantSolved].filter(Boolean).length;
-    endKicker.textContent = won ? "СМЕНА ЗАВЕРШЕНА" : "АВАРИЙНЫЙ ПРОТОКОЛ";
-    endTitle.textContent = won ? "РЕАКТОР СТАБИЛЕН" : "РЕАКТОР УНИЧТОЖЕН";
-    endReason.textContent = won
-      ? "Защитный контур удержан. Экипаж пережил смену."
-      : state.outcomeReason === "timeout"
-        ? "Время вышло: активная зона перегрелась и пробила оболочку."
-        : "Третья ошибка перегрузила аварийный контур.";
-    endStats.textContent = won
-      ? `3/3 МОДУЛЯ · ${state.mistakes} ОШИБОК · ${formatTime(state.timer)} В ЗАПАСЕ`
-      : `${completed}/3 МОДУЛЯ · ${state.mistakes}/${state.maxMistakes} ОШИБОК`;
+    const completed = view?.progress?.resolvedCount || 0;
+    const total = view?.progress?.totalIncidents || (state.tutorial ? 1 : 4);
+    if (state.tutorial && won) {
+      endKicker.textContent = "ОБУЧЕНИЕ ЗАВЕРШЕНО";
+      endTitle.textContent = "ВЫ ГОТОВЫ К СМЕНЕ";
+      endReason.textContent = "Вы нашли аварию, передали символ и устранили её оператором. Онлайн-режим разблокирован.";
+      endStats.textContent = "3 РОЛИ · 1 АВАРИЯ · ОНЛАЙН ОТКРЫТ";
+    } else {
+      endKicker.textContent = won ? "СМЕНА ЗАВЕРШЕНА" : "АВАРИЙНЫЙ ПРОТОКОЛ";
+      endTitle.textContent = won ? "КОМАНДА СПАСЛА СМЕНУ" : "РЕАКТОР УНИЧТОЖЕН";
+      endReason.textContent = won
+        ? "Четыре аварии устранены совместными действиями экипажа."
+        : state.outcomeReason === "timeout"
+          ? "Время смены закончилось раньше, чем удалось справиться со всеми авариями."
+          : "Шесть сбоев перегрузили аварийный контур.";
+      endStats.textContent = won
+        ? `${total}/${total} АВАРИИ · ${state.mistakes} СБОЕВ · ${formatTime(state.timer)} В ЗАПАСЕ`
+        : `${completed}/${total} АВАРИИ · ${state.mistakes}/${state.maxMistakes} СБОЕВ`;
+    }
     endButton.textContent = state.tutorial
-      ? "В ОНЛАЙН-МЕНЮ"
+      ? won ? "ПЕРЕЙТИ В ОНЛАЙН" : "ПОВТОРИТЬ ОБУЧЕНИЕ"
       : state.isHost ? "НОВАЯ СМЕНА" : "ОЖИДАНИЕ КОМАНДИРА";
     endButton.disabled = !state.tutorial && (!state.isHost || !state.crewReady);
   }
@@ -653,20 +725,20 @@ function renderUi() {
   if (roleButtons.innerHTML !== roleMarkup) roleButtons.innerHTML = roleMarkup;
 
   const progress = view?.progress;
-  const moduleOrder = progress?.moduleOrder || ["wires", "glyphs", "coolant"];
-  moduleDots.innerHTML = moduleOrder.map(id => `<i class="module-dot ${progress?.[`${id}Solved`] ? "done" : ""} ${progress?.activeModule === id ? "active" : ""}"></i>`).join("");
+  const incidentTotal = progress?.totalIncidents || (state.tutorial ? 1 : 4);
+  moduleDots.innerHTML = Array.from({ length: incidentTotal }, (_, index) => `<i class="module-dot ${index < (progress?.resolvedCount || 0) ? "done" : ""} ${index === progress?.incidentIndex && state.phase === "playing" ? "active" : ""}"></i>`).join("");
   document.querySelector(".station-wires span").textContent = modules.wires.name;
   document.querySelector(".station-glyphs span").textContent = modules.glyphs.name;
   document.querySelector(".station-coolant span").textContent = modules.coolant.name;
-  document.querySelector(".station-wires").classList.toggle("is-done", Boolean(progress?.wiresSolved));
-  document.querySelector(".station-glyphs").classList.toggle("is-done", Boolean(progress?.glyphsSolved));
-  document.querySelector(".station-coolant").classList.toggle("is-done", Boolean(progress?.coolantSolved));
+  for (const id of ["wires", "glyphs", "coolant"]) {
+    document.querySelector(`.station-${id}`).classList.toggle("is-active", progress?.activeModule === id);
+  }
 
   const mutedRole = self?.role === "scribe";
   chatForm.hidden = mutedRole;
-  quickPings.hidden = mutedRole || self?.role === "lookout";
-  routeControls.hidden = self?.role !== "lookout";
-  symbolRelay.hidden = !mutedRole;
+  quickPings.hidden = true;
+  routeControls.hidden = self?.role !== "lookout" || !view?.team?.routeReady;
+  symbolRelay.hidden = true;
   touchControls.hidden = self?.role === "lookout";
   chatInput.disabled = mutedRole;
   chatForm.querySelector("button").disabled = mutedRole;
@@ -721,6 +793,18 @@ function updateAudioButton(role = state?.players.find(player => player.id === se
   audioButton.setAttribute("aria-label", audioButton.title);
 }
 
+function renderTutorialProgress(self, view) {
+  const currentIndex = Math.max(0, TUTORIAL_ROLE_ORDER.indexOf(self?.role));
+
+  tutorialModuleLabel.textContent = "УЧЕБНАЯ АВАРИЯ · 3 ПРОСТЫХ ШАГА";
+  tutorialStepElements.forEach((element, index) => {
+    element.classList.toggle("is-complete", index < currentIndex);
+    element.classList.toggle("is-current", index === currentIndex);
+    element.classList.toggle("is-locked", index > currentIndex);
+  });
+  tutorialNextButton.hidden = true;
+}
+
 function renderObjective(self, nearby) {
   if (state.phase === "lobby" || ["won", "lost"].includes(state.phase)) {
     objectiveCard.hidden = true;
@@ -729,48 +813,42 @@ function renderObjective(self, nearby) {
 
   const view = state.puzzleView;
   const activeModule = view?.progress?.activeModule;
-  const activeName = activeModule ? currentModules()[activeModule].name : "ВСЕ МОДУЛИ";
-  let kicker = state.scenario?.name || "ВАША ЗАДАЧА";
-  let text = "Стабилизируйте три модуля до конца таймера.";
+  const activeName = activeModule ? currentModules()[activeModule].name : "ЦЕЛЬ";
+  const incidentNumber = (view?.progress?.incidentIndex || 0) + 1;
+  const total = view?.progress?.totalIncidents || 4;
+  let kicker = `АВАРИЯ ${incidentNumber}/${total} · ${view?.incident?.title || "ТРЕВОГА"}`;
+  let text = view?.incident?.alert || "Дождитесь новой задачи.";
 
-  if (state.tutorial && view) {
-    const solvedCount = [view.progress.wiresSolved, view.progress.glyphsSolved, view.progress.coolantSolved].filter(Boolean).length;
-    kicker = `ОБУЧЕНИЕ · ${ROLE_LABELS[self?.role]} · ${Math.min(3, solvedCount + 1)}/3`;
-    if (self?.role === "lookout") {
-      text = activeModule === "wires"
-        ? "Вы не можете ходить. Сканируйте цвета гнёзд и ведите красного оператора стрелками в консоли."
-        : activeModule === "glyphs"
-          ? "Вы не можете ходить. Сканируйте знаки пластин и направьте оператора к цели."
-          : "Вы не можете ходить. Сканируйте температу баков A, B и C и следите за оператором на карте.";
-    } else if (self?.role === "scribe") {
-      text = activeModule === "wires"
-        ? "Справа уже открыт ваш СПРАВОЧНИК. Прочитайте цвет и внизу соберите: квадрат + номер гнезда."
-        : activeModule === "glyphs"
-          ? "Справа открыт СПРАВОЧНИК с порядком знаков. Передайте его только символами."
-          : "Справа открыт СПРАВОЧНИК температур. Передайте A, B, C и нужные числа символами.";
-    } else {
-      const training = view.training;
-      const answer = activeModule === "wires"
-        ? `В учебной смене нужно гнездо ${training.wireSlot}.`
-        : activeModule === "glyphs"
-          ? `Порядок клавиш: ${training.glyphSlots.join(" → ")}.`
-          : `Выставьте ${training.coolant.map(tank => `${tank.label}=${tank.target}`).join(", ")}.`;
-      text = nearby?.id === activeModule
-        ? `Вы у цели. ${answer}`
-        : `Карта специально затемнена. Идите к модулю ${activeName} по сигналам команды.`;
-    }
-  } else if (self?.role === "operator") {
-    text = nearby
-      ? nearby.id === activeModule
-        ? `Оптика отключена. Получите решение для модуля ${nearby.name} от команды и используйте клавиши 1–4.`
-        : `Этот терминал заблокирован. Следующая цель: ${activeName}.`
-      : `Виден только круг фонаря. Попросите команду направить вас к модулю ${activeName}.`;
+  if (view?.chaos) {
+    kicker = `СБОЙ · ${view.chaos.label}`;
+    text = "Ничего страшного: помеха исчезнет через несколько секунд. Продолжайте действовать вместе.";
   } else if (self?.role === "lookout") {
-    text = `Вы закреплены у пульта и не можете ходить. Сканируйте ${activeName}, следите за красным оператором и ведите его стрелками.`;
+    text = !view.team.scanned
+      ? "Нажмите «Сканировать»: только вы можете найти место аварии."
+      : !view.team.routeReady
+        ? `Цель найдена: ${activeName}. Нажмите «Маршрут готов» и ведите оператора стрелками.`
+        : `Маршрут к станции ${activeName} передан. Следите за красным оператором и подсказывайте направление.`;
   } else if (self?.role === "scribe") {
-    text = `Справа открыт личный СПРАВОЧНИК для модуля ${activeName}. Передайте ответ цветами, знаками и цифрами.`;
+    text = !view.team.routeReady
+      ? "Ждите скан наблюдателя. После него здесь появится один нужный символ."
+      : !view.team.signalReady
+        ? "Выберите показанный символ. Это единственная подсказка, которую увидит оператор."
+        : "Символ передан. Следите за действиями оператора.";
+  } else if (self?.role === "operator") {
+    text = !view.team.routeReady
+      ? "Карта почти не видна. Ждите, пока наблюдатель найдёт цель и направит вас."
+      : !view.team.signalReady
+        ? `Двигайтесь к станции ${activeName}; архивариус скоро передаст нужный символ.`
+        : nearby?.id === activeModule
+          ? "Вы у нужной станции. Нажмите действие с символом, который передал архивариус."
+          : `Следуйте к станции ${activeName}. Смотрите на сигналы команды и маяк цели.`;
   } else {
-    text = "Следите за прогрессом экипажа.";
+    text = "Следите за тремя этапами командной работы.";
+  }
+
+  if (state.tutorial) {
+    const phaseLabel = ({ scan: "СКАН", route: "МАРШРУТ", signal: "СИМВОЛ", action: "ДЕЙСТВИЕ" })[view.phase] || "ШАГ";
+    kicker = `ОБУЧЕНИЕ · ${ROLE_LABELS[self?.role]} · ${phaseLabel}`;
   }
 
   objectiveCard.hidden = false;
@@ -790,18 +868,17 @@ function renderConsole(self, nearby) {
   if (workPanel.hidden) return;
 
   if (operatorAtModule) {
-    consoleKicker.textContent = "АКТИВНЫЙ ТЕРМИНАЛ";
+    consoleKicker.textContent = "СТАНЦИЯ РЕМОНТА";
     consoleTitle.textContent = nearby.name;
-    keyHelp.textContent = nearby.id === "coolant" ? "1–3 ВЫБОР · ENTER ПУСК" : "КЛАВИШИ 1–4";
+    keyHelp.textContent = "ВЫБОР 1–3";
   } else if (self.role === "scribe") {
-    const activeName = currentModules()[view.progress.activeModule]?.name || "ТЕКУЩИЙ МОДУЛЬ";
-    consoleKicker.textContent = "ЛИЧНЫЙ СПРАВОЧНИК";
-    consoleTitle.textContent = activeName;
-    keyHelp.textContent = "ТОЛЬКО ВЫ ЭТО ВИДИТЕ";
+    consoleKicker.textContent = "СЕКРЕТНЫЙ КОД";
+    consoleTitle.textContent = "ВЫБЕРИТЕ СИМВОЛ";
+    keyHelp.textContent = "1 НАЖАТИЕ";
   } else {
-    consoleKicker.textContent = "РОЛЕВАЯ КОНСОЛЬ";
-    consoleTitle.textContent = ROLE_LABELS[self.role];
-    keyHelp.textContent = "СТРЕЛКИ = МАРШРУТ";
+    consoleKicker.textContent = "ПОЛНАЯ КАРТА";
+    consoleTitle.textContent = "СКАНЕР АВАРИЙ";
+    keyHelp.textContent = "2 КОРОТКИХ ШАГА";
   }
 
   renderIntel(self, nearby);
@@ -811,87 +888,78 @@ function renderConsole(self, nearby) {
 function renderIntel(self, nearby) {
   const view = state.puzzleView;
 
-  if (state.tutorial && self?.role === "operator" && nearby && view.training) {
-    if (nearby.id === "wires") {
-      intelPanel.innerHTML = `<p>ЭХО: нужен <strong>${colorLabel(view.training.wireColor)}</strong> провод. Он находится в гнезде <strong>${view.training.wireSlot}</strong>.</p>`;
-      return;
-    }
-    if (nearby.id === "glyphs") {
-      intelPanel.innerHTML = `<p>ЯРА: порядок знаков <strong>${view.training.glyphs.map(symbol => SYMBOL_LABELS[symbol]).join(" → ")}</strong>.<br>ЭХО: это пластины <strong>${view.training.glyphSlots.join(" → ")}</strong>.</p>`;
-      return;
-    }
-    if (nearby.id === "coolant") {
-      intelPanel.innerHTML = `<div class="data-list">${view.training.coolant.map(tank => `<div class="data-row"><span>БАК ${tank.label} · T=${tank.temp}</span><strong>НУЖНО ${tank.target}</strong></div>`).join("")}</div>`;
-      return;
-    }
-  }
-
   if (view.role === "lookout") {
-    const activeModule = view.progress.activeModule;
-    const rows = activeModule === "wires"
-      ? view.scanner.wires.map(wire => `<div class="data-row"><span>ПРОВОД ${wire.slot}</span><strong>${colorLabel(wire.color)}</strong></div>`).join("")
-      : activeModule === "glyphs"
-        ? view.scanner.glyphs.map(glyph => `<div class="data-row"><span>ПЛАСТИНА ${glyph.slot}</span><strong>${SYMBOL_LABELS[glyph.symbol] || glyph.symbol}</strong></div>`).join("")
-        : view.scanner.coolant.map(tank => `<div class="data-row"><span>БАК ${tank.label}</span><strong>T=${tank.temp} · ${tank.value}</strong></div>`).join("");
-    intelPanel.innerHTML = `
-      <div class="data-list">
-        ${rows}
-      </div>`;
+    intelPanel.innerHTML = view.scanner
+      ? `<div class="big-readout"><span>ЦЕЛЬ НА КАРТЕ</span><strong>${escapeHtml(currentModules()[view.scanner.station]?.name || "СТАНЦИЯ")}</strong><small>${escapeHtml(view.scanner.alert)}</small></div>`
+      : '<div class="big-readout waiting"><span>СИГНАЛ НЕ ОПОЗНАН</span><strong>?</strong><small>Запустите сканер</small></div>';
     return;
   }
 
   if (view.role === "scribe") {
-    const activeModule = view.progress.activeModule;
-    const rule = activeModule === "wires" ? view.manual.wire : activeModule === "glyphs" ? view.manual.glyph : view.manual.coolant;
-    const label = currentModules()[activeModule]?.name || "ПРАВИЛО";
-    intelPanel.innerHTML = `
-      <article class="manual-page">
-        <header><span>ОТКРЫТА НУЖНАЯ СТРАНИЦА</span><strong>${escapeHtml(label)}</strong></header>
-        <p class="manual-rule">${escapeHtml(rule)}</p>
-        <footer>СОБЕРИТЕ ОТВЕТ СИМВОЛАМИ ВНИЗУ ↓</footer>
-      </article>`;
+    intelPanel.innerHTML = view.manual
+      ? `<div class="big-readout symbol-readout"><span>ПЕРЕДАЙТЕ ЭТОТ ЗНАК</span><strong>${escapeHtml(view.manual.solution.symbol)}</strong><small>${escapeHtml(view.manual.solution.label)}</small></div>`
+      : '<div class="big-readout waiting"><span>ЖДЁМ МАРШРУТ</span><strong>…</strong><small>Наблюдатель ещё сканирует</small></div>';
     return;
   }
 
-  intelPanel.innerHTML = "<p>Используйте решение, которое передала команда.</p>";
+  const signal = view.choices?.find(choice => choice.id === view.team.signalId);
+  intelPanel.innerHTML = signal
+    ? `<div class="big-readout symbol-readout"><span>СИГНАЛ АРХИВАРИУСА</span><strong>${escapeHtml(signal.symbol)}</strong><small>Найдите такой же знак ниже</small></div>`
+    : '<div class="big-readout waiting"><span>ЖДЁМ СИМВОЛ</span><strong>…</strong><small>Не выбирайте наугад</small></div>';
 }
 
 function renderActions(self, nearby) {
-  if (!state?.puzzleView || state.phase !== "playing" || self?.role !== "operator" || !nearby) {
+  if (!state?.puzzleView || state.phase !== "playing" || !self) {
     setActionMarkup("");
     return;
   }
   const view = state.puzzleView;
-  let markup = "";
-  if (nearby.id !== view.progress.activeModule) {
-    const target = currentModules()[view.progress.activeModule]?.name || "СЛЕДУЮЩИЙ МОДУЛЬ";
-    setActionMarkup(`<p class="locked-action">ЗАБЛОКИРОВАНО · СНАЧАЛА ${escapeHtml(target)}</p>`);
+
+  if (self.role === "lookout") {
+    if (!view.team.scanned) {
+      setActionMarkup('<button class="primary wide-action" data-action="scan"><b>◉</b><span>СКАНИРОВАТЬ АВАРИЮ</span></button>');
+    } else if (!view.team.routeReady) {
+      setActionMarkup('<button class="primary wide-action" data-action="route"><b>➜</b><span>МАРШРУТ ГОТОВ</span></button>');
+    } else {
+      showActionDone("МАРШРУТ ПЕРЕДАН · ВЕДИТЕ ОПЕРАТОРА СТРЕЛКАМИ");
+    }
     return;
   }
 
-  if (nearby.id === "wires") {
-    if (view.progress.wiresSolved) return showActionDone("МОДУЛЬ УЖЕ СТАБИЛЕН");
-    markup = view.wires.map((wire, index) => `
-      <button ${wire.cut ? "disabled" : ""} data-action="wire" data-slot="${wire.slot}"><kbd>${index + 1}</kbd>ПРОВОД ${wire.slot}</button>
-    `).join("");
+  if (self.role === "scribe") {
+    if (!view.manual) {
+      showActionDone("ЖДЁМ, ПОКА НАБЛЮДАТЕЛЬ ПЕРЕДАСТ МАРШРУТ");
+      return;
+    }
+    if (view.team.signalReady) {
+      showActionDone("СИМВОЛ ПЕРЕДАН ОПЕРАТОРУ");
+      return;
+    }
+    setActionMarkup(view.manual.choices.map((choice, index) => `
+      <button class="symbol-choice" data-action="signal" data-choice="${escapeHtml(choice.id)}"><kbd>${index + 1}</kbd><b>${escapeHtml(choice.symbol)}</b><span>${escapeHtml(choice.label)}</span></button>
+    `).join(""));
+    return;
   }
 
-  if (nearby.id === "glyphs") {
-    if (view.progress.glyphsSolved) return showActionDone("ЗАМОК УЖЕ ОТКРЫТ");
-    markup = view.glyphs.map((glyph, index) => `
-      <button data-action="glyph" data-slot="${glyph.slot}"><kbd>${index + 1}</kbd>ПЛАСТИНА ${glyph.slot}</button>
-    `).join("");
+  if (self.role !== "operator" || !nearby) {
+    setActionMarkup("");
+    return;
   }
 
-  if (nearby.id === "coolant") {
-    if (view.progress.coolantSolved) return showActionDone("КОНТУР УЖЕ СТАБИЛЕН");
-    markup = [
-      ...view.coolant.map((tank, index) => `<button data-action="coolant" data-label="${tank.label}"><kbd>${index + 1}</kbd>${tank.label} = ${tank.value}</button>`),
-      '<button class="primary" data-action="commit"><kbd>↵</kbd>ПОДТВЕРДИТЬ</button>'
-    ].join("");
+  if (nearby.id !== view.progress.activeModule) {
+    const target = currentModules()[view.progress.activeModule]?.name || "НУЖНАЯ СТАНЦИЯ";
+    setActionMarkup(`<p class="locked-action">НЕ ТА СТАНЦИЯ · ИЩИТЕ ${escapeHtml(target)}</p>`);
+    return;
   }
 
-  setActionMarkup(markup);
+  if (!view.team.routeReady || !view.team.signalReady) {
+    showActionDone("ЖДЁМ МАРШРУТ И СИМВОЛ КОМАНДЫ");
+    return;
+  }
+
+  setActionMarkup(view.choices.map((choice, index) => `
+    <button class="symbol-choice" data-action="resolve" data-choice="${escapeHtml(choice.id)}"><kbd>${index + 1}</kbd><b>${escapeHtml(choice.symbol)}</b><span>${escapeHtml(choice.label)}</span></button>
+  `).join(""));
 }
 
 function showActionDone(text) {
@@ -910,14 +978,14 @@ function renderProximity(self, nearby) {
   proximityHint.hidden = false;
   if (self.role !== "operator") {
     proximityHint.textContent = self.role === "scribe"
-      ? "СОПОСТАВЬТЕ ПРАВИЛО · ОТПРАВЬТЕ СИМВОЛЫ"
-      : "ВЫ У ПУЛЬТА · СЛЕДИТЕ ЗА ОПЕРАТОРОМ · ВЕДИТЕ СТРЕЛКАМИ";
+      ? "УВИДЬТЕ ЗНАК · НАЖМИТЕ ТАКОЙ ЖЕ"
+      : "СКАНИРУЙТЕ · ОТМЕТЬТЕ МАРШРУТ · ВЕДИТЕ СТРЕЛКАМИ";
   } else if (nearby) {
     proximityHint.textContent = nearby.id === state.puzzleView?.progress?.activeModule
-      ? `${nearby.name} · ВЫБОР: 1–4${nearby.id === "coolant" ? " · ПУСК: ENTER" : ""}`
-      : `${nearby.name} · ЗАБЛОКИРОВАНО`;
+      ? `${nearby.name} · СОВПАДЕНИЕ СИМВОЛА: 1–3`
+      : `${nearby.name} · НЕ ТА СТАНЦИЯ`;
   } else {
-    proximityHint.textContent = "WASD / СТРЕЛКИ — ДВИЖЕНИЕ К ЦВЕТНОМУ ТЕРМИНАЛУ";
+    proximityHint.textContent = "WASD / СТРЕЛКИ · СЛЕДУЙТЕ К МАЯКУ КОМАНДЫ";
   }
 }
 
@@ -933,19 +1001,19 @@ function renderStory(self, nearby) {
   let text = "Соберите экипаж и выберите роли.";
 
   if (state.phase === "won") {
-    text = "Все три модуля стабилизированы. Реактор работает штатно.";
+    text = "Все аварии устранены. Реактор работает штатно.";
   } else if (state.phase === "lost") {
     speaker = "ТРЕВОГА";
     text = "Смена провалена. Запустите новую попытку.";
   } else if (state.tutorial && state.puzzleView) {
     speaker = "КУРАТОР";
     text = self?.role === "lookout"
-      ? "Вы — стационарный диспетчер. Следите за оператором и ведите его стрелками; движение вам недоступно."
+      ? "Нажмите сканер, затем подтвердите маршрут. После этого роль сменится сама."
       : self?.role === "scribe"
-        ? "Ваш справочник открыт справа. Прочитайте правило и соберите ответ из знаков внизу."
+        ? "Большой знак справа — ответ. Нажмите такой же знак среди трёх кнопок."
         : nearby
-          ? "Фонарь нашёл терминал. Введите решение команды."
-          : "Виден только круг фонаря и маяки напарников. Двигайтесь по их сигналам.";
+          ? "Вы у станции. Нажмите действие с тем же знаком."
+          : "Виден только круг фонаря. Идите по мигающей линии к станции.";
   } else if (state.logs.length) {
     const entry = state.logs.at(-1);
     speaker = entry.tone === "danger" ? "ТРЕВОГА" : entry.tone === "chat" ? "ЭКИПАЖ" : "СИСТЕМА";
@@ -986,8 +1054,10 @@ function draw(now) {
     drawCorePulse(now);
     drawModuleStates(now);
     drawSensoryLayer();
+    drawTutorialRoute(now);
     if (state.tutorial && state.phase === "playing") drawTutorialCrew(now);
     drawPlayers(now);
+    drawChaosEffects(now);
     drawOutcomeEffects(now);
   }
   requestAnimationFrame(draw);
@@ -1046,12 +1116,13 @@ function drawSensoryLayer() {
   ctx.fillStyle = "rgba(1, 3, 4, 0.94)";
   ctx.fillRect(0, 0, 480, 270);
   ctx.globalCompositeOperation = "destination-out";
-  const light = ctx.createRadialGradient(self.x, self.y - 9, 8, self.x, self.y - 9, 58);
+  const lightRadius = state.tutorial ? 92 : 76;
+  const light = ctx.createRadialGradient(self.x, self.y - 9, 8, self.x, self.y - 9, lightRadius);
   light.addColorStop(0, "rgba(0, 0, 0, 1)");
   light.addColorStop(0.55, "rgba(0, 0, 0, 0.82)");
   light.addColorStop(1, "rgba(0, 0, 0, 0)");
   ctx.fillStyle = light;
-  ctx.fillRect(self.x - 60, self.y - 69, 120, 120);
+  ctx.fillRect(self.x - lightRadius - 2, self.y - lightRadius - 11, (lightRadius + 2) * 2, (lightRadius + 2) * 2);
   ctx.restore();
 
   ctx.save();
@@ -1061,31 +1132,49 @@ function drawSensoryLayer() {
   ctx.restore();
 }
 
+function drawTutorialRoute(now) {
+  if (state.phase !== "playing") return;
+  const self = state.players.find(player => player.id === selfId);
+  if (!self || self.role !== "operator") return;
+  if (!state.tutorial && !state.puzzleView?.team?.routeReady) return;
+  const activeId = state.puzzleView?.progress?.activeModule;
+  const target = currentModules()[activeId];
+  if (!target) return;
+
+  const pulse = Math.floor(now / 240) % 2;
+  ctx.save();
+  ctx.globalAlpha = 0.8;
+  ctx.strokeStyle = pulse ? "#ffd85a" : "#fff8dc";
+  ctx.lineWidth = 2;
+  ctx.setLineDash([7, 5]);
+  ctx.beginPath();
+  ctx.moveTo(Math.round(self.x), Math.round(self.y - 8));
+  ctx.lineTo(target.x, target.y);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.strokeRect(target.x - 23 - pulse * 3, target.y - 23 - pulse * 3, 46 + pulse * 6, 46 + pulse * 6);
+  ctx.fillStyle = "#ffd85a";
+  ctx.fillRect(target.x - 3, target.y - 3, 6, 6);
+  ctx.restore();
+}
+
 function drawModuleStates(now) {
   const progress = state.puzzleView?.progress;
   const self = state.players.find(player => player.id === selfId);
   const nearby = self ? nearestModule(self) : null;
-  const solved = {
-    wires: progress?.wiresSolved,
-    glyphs: progress?.glyphsSolved,
-    coolant: progress?.coolantSolved
-  };
   const colors = { wires: "#ff3b35", glyphs: "#55e6ec", coolant: "#ffd85a" };
 
   for (const module of Object.values(currentModules())) {
     const active = progress?.activeModule === module.id;
-    ctx.globalAlpha = solved[module.id] || active ? 1 : 0.38;
-    ctx.strokeStyle = solved[module.id] ? "#70ec8c" : colors[module.id];
+    const revealed = state.puzzleView?.team?.scanned || self?.role !== "lookout";
+    ctx.globalAlpha = active && revealed ? 1 : 0.28;
+    ctx.strokeStyle = active ? "#fff8dc" : colors[module.id];
     ctx.lineWidth = nearby?.id === module.id ? 3 : 2;
-    const size = nearby?.id === module.id && Math.floor(now / 240) % 2 === 0 ? 42 : 38;
+    const pulse = active && Math.floor(now / 240) % 2 === 0;
+    const size = nearby?.id === module.id || pulse ? 44 : 36;
     ctx.strokeRect(module.x - size / 2, module.y - size / 2, size, size);
-    ctx.fillStyle = solved[module.id] ? "#70ec8c" : colors[module.id];
+    ctx.fillStyle = active ? "#fff8dc" : colors[module.id];
     ctx.fillRect(module.x - 4, module.y - 4, 8, 8);
-    if (solved[module.id]) {
-      ctx.fillStyle = "#080a0c";
-      ctx.fillRect(module.x - 1, module.y - 3, 2, 6);
-      ctx.fillRect(module.x - 3, module.y - 1, 6, 2);
-    }
   }
   ctx.globalAlpha = 1;
 }
@@ -1114,6 +1203,45 @@ function drawPlayers(now) {
     lastFootstepAt = now;
     audio.play("step");
   }
+}
+
+function drawChaosEffects(now) {
+  const chaos = state.puzzleView?.chaos;
+  const resolved = state.puzzleView?.lastResolved;
+  if (!chaos && !resolved) return;
+
+  ctx.save();
+  if (resolved) {
+    const pulse = Math.floor(now / 100) % 5;
+    ctx.strokeStyle = pulse % 2 ? "#70ec8c" : "#fff8dc";
+    ctx.lineWidth = 3;
+    ctx.strokeRect(210 - pulse * 5, 104 - pulse * 5, 60 + pulse * 10, 60 + pulse * 10);
+  }
+  if (chaos?.id === "blackout") {
+    ctx.fillStyle = Math.floor(now / 180) % 2 ? "rgba(0, 0, 0, 0.58)" : "rgba(0, 0, 0, 0.2)";
+    ctx.fillRect(0, 0, 480, 270);
+  }
+  if (chaos?.id === "steam") {
+    ctx.fillStyle = "rgba(235, 244, 238, 0.2)";
+    for (let index = 0; index < 18; index += 1) {
+      const x = (index * 67 + now / 12) % 520 - 20;
+      const y = 35 + (index * 41) % 210;
+      ctx.fillRect(Math.round(x), y, 24, 8);
+    }
+  }
+  if (chaos?.id === "slip") {
+    ctx.fillStyle = "rgba(85, 230, 236, 0.38)";
+    for (let index = 0; index < 12; index += 1) {
+      const x = 28 + index * 39;
+      const y = 220 + (index % 3) * 8;
+      ctx.fillRect(x, y, 25, 2);
+    }
+  }
+  if (chaos?.id === "alarm") {
+    ctx.fillStyle = Math.floor(now / 220) % 2 ? "rgba(255, 59, 53, 0.22)" : "rgba(255, 59, 53, 0.04)";
+    ctx.fillRect(0, 0, 480, 270);
+  }
+  ctx.restore();
 }
 
 function drawGuideBeacon(x, y, role, now) {
@@ -1528,7 +1656,7 @@ function createAudioEngine() {
     if (next.mistakes > previous.mistakes) play("error");
     const solvedCount = room => {
       const progress = room?.puzzleView?.progress;
-      return [progress?.wiresSolved, progress?.glyphsSolved, progress?.coolantSolved].filter(Boolean).length;
+      return progress?.resolvedCount || 0;
     };
     if (solvedCount(next) > solvedCount(previous)) play("solve");
     if (previous.phase !== next.phase && next.phase === "won") play("win");

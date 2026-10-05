@@ -15,10 +15,75 @@ const ROLES = [
 ];
 
 const MODULES = {
-  wires: { id: "wires", name: "Wire Crate", x: 106, y: 86, radius: 42 },
-  glyphs: { id: "glyphs", name: "Glyph Pads", x: 363, y: 88, radius: 42 },
-  coolant: { id: "coolant", name: "Coolant Rack", x: 238, y: 198, radius: 48 }
+  wires: { id: "wires", name: "СКЛАД", x: 106, y: 86, radius: 48 },
+  glyphs: { id: "glyphs", name: "ПУЛЬТ", x: 363, y: 88, radius: 48 },
+  coolant: { id: "coolant", name: "СЕРВИС", x: 238, y: 198, radius: 54 }
 };
+
+const INCIDENTS = [
+  {
+    id: "feed",
+    title: "РЕАКТОР ПРОГОЛОДАЛСЯ",
+    alert: "Ядро требует свежую порцию топлива.",
+    station: "wires",
+    choices: [
+      { id: "banana", symbol: "◆", label: "БАНАН" },
+      { id: "orange", symbol: "●", label: "АПЕЛЬСИН" },
+      { id: "berries", symbol: "✦", label: "ЯГОДЫ" }
+    ]
+  },
+  {
+    id: "leak",
+    title: "ТРУБУ ПРОРВАЛО",
+    alert: "Давление падает, по полу идёт пар.",
+    station: "coolant",
+    choices: [
+      { id: "valve", symbol: "◎", label: "КЛАПАН" },
+      { id: "foam", symbol: "■", label: "ПЕНА" },
+      { id: "tape", symbol: "═", label: "ЛЕНТА" }
+    ]
+  },
+  {
+    id: "overload",
+    title: "ПУЛЬТ ИСКРИТ",
+    alert: "Контур питания ушёл в перегрузку.",
+    station: "glyphs",
+    choices: [
+      { id: "breaker", symbol: "↯", label: "РУБИЛЬНИК" },
+      { id: "fuse", symbol: "▣", label: "ПРЕДОХРАНИТЕЛЬ" },
+      { id: "ground", symbol: "↓", label: "ЗАЗЕМЛЕНИЕ" }
+    ]
+  },
+  {
+    id: "fire",
+    title: "ВОЗГОРАНИЕ",
+    alert: "Один из узлов вспыхнул.",
+    station: "coolant",
+    choices: [
+      { id: "water", symbol: "◆", label: "ВОДА" },
+      { id: "foam", symbol: "☁", label: "ПЕНА" },
+      { id: "sand", symbol: "▲", label: "ПЕСОК" }
+    ]
+  },
+  {
+    id: "bomb",
+    title: "УБЕЖАЛА БОМБА",
+    alert: "Нестабильный заряд застрял у терминала.",
+    station: "glyphs",
+    choices: [
+      { id: "freeze", symbol: "❄", label: "ЗАМОРОЗИТЬ" },
+      { id: "eject", symbol: "➜", label: "ВЫБРОСИТЬ" },
+      { id: "disarm", symbol: "✓", label: "РАЗРЯДИТЬ" }
+    ]
+  }
+];
+
+const CHAOS_EFFECTS = [
+  { id: "steam", label: "ПАР ЗАКРЫЛ ОБЗОР" },
+  { id: "blackout", label: "СВЕТ МИГАЕТ" },
+  { id: "slip", label: "ПОЛ СТАЛ СКОЛЬЗКИМ" },
+  { id: "alarm", label: "ЛОЖНАЯ ТРЕВОГА" }
+];
 
 const SCENARIOS = [
   {
@@ -28,10 +93,10 @@ const SCENARIOS = [
     background: "./assets/reactor-room-v2.png",
     accent: "#ffd85a",
     music: "reactor",
-    durationSec: 210,
-    maxMistakes: 3,
+    durationSec: 240,
+    maxMistakes: 6,
     moduleOrder: ["wires", "glyphs", "coolant"],
-    moduleNames: { wires: "ПРОВОДА", glyphs: "ЗНАКИ", coolant: "ОХЛАЖДЕНИЕ" },
+    moduleNames: { wires: "СКЛАД", glyphs: "ПУЛЬТ", coolant: "СЕРВИС" },
     glyphLength: 3,
     coolantRule: "hot-first",
     coolantManual: "Горячий бак = 1, средний = 2, холодный = 3."
@@ -43,10 +108,10 @@ const SCENARIOS = [
     background: "./assets/cryo-vault-v1.png",
     accent: "#8cecff",
     music: "cryo",
-    durationSec: 195,
-    maxMistakes: 3,
+    durationSec: 240,
+    maxMistakes: 6,
     moduleOrder: ["coolant", "wires", "glyphs"],
-    moduleNames: { wires: "ТЕРМОКОНТУР", glyphs: "КРИОПЕЧАТИ", coolant: "ХЛАДОБАКИ" },
+    moduleNames: { wires: "ХОЛОДНЫЙ СКЛАД", glyphs: "КРИОПУЛЬТ", coolant: "ТЕРМОУЗЕЛ" },
     glyphLength: 4,
     coolantRule: "cold-first",
     coolantManual: "Холодный бак = 1, средний = 2, горячий = 3."
@@ -58,10 +123,10 @@ const SCENARIOS = [
     background: "./assets/signal-array-v1.png",
     accent: "#70ec8c",
     music: "signal",
-    durationSec: 180,
-    maxMistakes: 2,
+    durationSec: 240,
+    maxMistakes: 6,
     moduleOrder: ["glyphs", "coolant", "wires"],
-    moduleNames: { wires: "ВОЛНОВОДЫ", glyphs: "ЧАСТОТЫ", coolant: "РЕЗОНАТОРЫ" },
+    moduleNames: { wires: "СКЛАД АНТЕННЫ", glyphs: "ПУЛЬТ СВЯЗИ", coolant: "РЕТРАНСЛЯТОР" },
     glyphLength: 3,
     coolantRule: "phase-shift",
     coolantManual: "Холодный бак = 2, средний = 3, горячий = 1."
@@ -474,11 +539,11 @@ function startRoom(room) {
   room.shiftId = randomUUID();
   room.scenarioId = scenario.id;
   room.scenario = scenario;
-  room.puzzle = room.tutorial ? makeTutorialPuzzle(scenario) : makePuzzle(seed, scenario);
+  room.puzzle = makePartyShift(seed, scenario, room.tutorial);
   room.mistakes = 0;
-  room.maxMistakes = room.tutorial ? 3 : scenario.maxMistakes;
+  room.maxMistakes = room.tutorial ? 99 : scenario.maxMistakes;
   room.startedAt = Date.now();
-  room.deadline = room.startedAt + (room.tutorial ? 600_000 : scenario.durationSec * 1000);
+  room.deadline = room.startedAt + (room.tutorial ? 90_000 : scenario.durationSec * 1000);
   room.endedAt = 0;
   room.outcomeReason = null;
   room.timeLeftAtEnd = 0;
@@ -494,8 +559,40 @@ function startRoom(room) {
     player.input = normalizeInput({});
   }
 
-  addLog(room, room.tutorial ? "Куратор: сначала изучите сканер наблюдателя." : `${scenario.name}: смена началась. Серийный номер ${room.puzzle.serial}.`, "system");
+  addLog(room, room.tutorial ? "Куратор: нажмите «Сканировать аварию»." : `${scenario.name}: началась весёлая аварийная смена.`, "system");
   broadcast(room);
+}
+
+function makePartyShift(seed, scenario, tutorial = false) {
+  const rng = mulberry32(seed);
+  const source = tutorial ? [INCIDENTS[0]] : shuffle(INCIDENTS, rng).slice(0, 4);
+  const incidents = source.map((blueprint, index) => {
+    const solutionIndex = tutorial ? 0 : Math.floor(rng() * blueprint.choices.length);
+    return {
+      ...blueprint,
+      id: `${blueprint.id}-${index + 1}`,
+      choices: blueprint.choices.map(choice => ({ ...choice })),
+      solutionId: blueprint.choices[solutionIndex].id
+    };
+  });
+
+  return {
+    seed,
+    serial: tutorial ? "TRY-01" : `${scenario.id.toUpperCase()}-${100 + Math.floor(rng() * 900)}`,
+    incidents,
+    currentIndex: 0,
+    resolvedCount: 0,
+    lookoutScanned: false,
+    routeReady: false,
+    signalReady: false,
+    signalId: null,
+    incidentStartedAt: Date.now(),
+    incidentDurationSec: tutorial ? 90 : 55,
+    chaos: null,
+    chaosUntil: 0,
+    lastResolved: null,
+    lastResolvedAt: 0
+  };
 }
 
 function chooseScenario(room) {
@@ -519,11 +616,14 @@ function tickRooms() {
 
     if (room.phase === "playing") {
       for (const player of room.players.values()) {
-        movePlayer(player, dt);
+        movePlayer(room, player, dt);
       }
 
-      if (now >= room.deadline) {
+      if (!room.tutorial && now >= room.deadline) {
         finishRoom(room, "lost", "timeout", "Время вышло. Реактор разрушен.", "danger");
+      } else if (!room.tutorial && room.puzzle && now - room.puzzle.incidentStartedAt >= room.puzzle.incidentDurationSec * 1000) {
+        room.puzzle.incidentStartedAt = now;
+        addChaos(room, "Команда слишком долго ждала: авария усилилась.", "alarm");
       }
     }
 
@@ -531,7 +631,7 @@ function tickRooms() {
   }
 }
 
-function movePlayer(player, dt) {
+function movePlayer(room, player, dt) {
   if (player.role === "lookout") {
     player.input = normalizeInput({});
     return;
@@ -547,7 +647,8 @@ function movePlayer(player, dt) {
   else if (vy < 0) player.facing = "up";
   else if (vy > 0) player.facing = "down";
   const length = Math.hypot(vx, vy) || 1;
-  const speed = player.role === "scribe" ? 58 : 76;
+  const slowed = room.puzzle?.chaosUntil > Date.now() && ["steam", "slip"].includes(room.puzzle.chaos?.id);
+  const speed = (player.role === "scribe" ? 58 : 76) * (slowed ? 0.72 : 1);
   player.x = clamp(player.x + (vx / length) * speed * dt, 22, 458);
   player.y = clamp(player.y + (vy / length) * speed * dt, 34, 242);
 }
@@ -563,30 +664,97 @@ function normalizeInput(input) {
 
 function handleInteraction(room, player, message) {
   if (room.phase !== "playing" || !room.puzzle) return;
-  if (player.role !== "operator") {
-    player.peer.send({ type: "error", message: "Только оператор может управлять модулями" });
+  const incident = currentIncident(room.puzzle);
+  if (!incident) return;
+
+  if (message.action === "scan") {
+    if (player.role !== "lookout" || room.puzzle.lookoutScanned) return;
+    room.puzzle.lookoutScanned = true;
+    triggerPlayerAction(player, "scan");
+    addLog(room, `${player.nick}: авария найдена — ${room.scenario.moduleNames[incident.station]}.`, "success");
     return;
   }
 
-  const module = MODULES[message.module];
-  if (!module || distance(player, module) > module.radius) return;
-  const activeModule = room.puzzle.moduleOrder.find(id => !room.puzzle.modules[id].solved);
-  if (message.module !== activeModule) {
-    player.peer.send({ type: "error", message: `Сначала стабилизируйте ${room.scenario.moduleNames[activeModule]}` });
+  if (message.action === "route") {
+    if (player.role !== "lookout" || !room.puzzle.lookoutScanned || room.puzzle.routeReady) return;
+    room.puzzle.routeReady = true;
+    triggerPlayerAction(player, "communicate");
+    addLog(room, `${player.nick}: маршрут отмечен. Архивариус, дайте символ.`, "ping");
+    if (room.tutorial) setTutorialRole(room, player, "scribe");
     return;
   }
-  triggerPlayerAction(player, message.module);
 
-  if (message.module === "wires") {
-    cutWire(room, player, Number(message.slot));
-  } else if (message.module === "glyphs") {
-    pressGlyph(room, player, Number(message.slot));
-  } else if (message.module === "coolant") {
-    if (message.action === "cycle") cycleCoolant(room, String(message.label || ""));
-    if (message.action === "commit") commitCoolant(room, player);
+  if (message.action === "signal") {
+    if (player.role !== "scribe" || !room.puzzle.routeReady || room.puzzle.signalReady) return;
+    const choice = incident.choices.find(item => item.id === String(message.choice || ""));
+    if (!choice) return;
+    triggerPlayerAction(player, "communicate");
+    if (choice.id !== incident.solutionId) {
+      addChaos(room, `${player.nick} передал неверный символ.`, null);
+      return;
+    }
+    room.puzzle.signalReady = true;
+    room.puzzle.signalId = choice.id;
+    addLog(room, `${player.nick}: ${choice.symbol} — сигнал передан оператору.`, "symbol");
+    if (room.tutorial) setTutorialRole(room, player, "operator");
+    return;
   }
 
-  checkWin(room);
+  if (message.action === "resolve") {
+    if (player.role !== "operator") return;
+    if (!room.puzzle.routeReady || !room.puzzle.signalReady) {
+      player.peer.send({ type: "error", message: "Сначала дождитесь маршрута и символа команды" });
+      return;
+    }
+    const module = MODULES[incident.station];
+    if (!module || distance(player, module) > module.radius) return;
+    const choice = incident.choices.find(item => item.id === String(message.choice || ""));
+    if (!choice) return;
+    triggerPlayerAction(player, incident.station);
+    if (choice.id !== incident.solutionId) {
+      addChaos(room, `${player.nick} применил не тот инструмент.`, null);
+      return;
+    }
+    resolveIncident(room, player, incident, choice);
+  }
+}
+
+function currentIncident(puzzle) {
+  return puzzle?.incidents?.[puzzle.currentIndex] || null;
+}
+
+function resolveIncident(room, player, incident, choice) {
+  const now = Date.now();
+  room.puzzle.resolvedCount += 1;
+  room.puzzle.lastResolved = { title: incident.title, symbol: choice.symbol, label: choice.label };
+  room.puzzle.lastResolvedAt = now;
+  addLog(room, `${player.nick}: ${incident.title.toLowerCase()} устранена!`, "success");
+
+  if (room.puzzle.resolvedCount >= room.puzzle.incidents.length) {
+    finishRoom(room, "won", "crew_saved", "Все аварии устранены. Экипаж спас смену!", "success");
+    return;
+  }
+
+  room.puzzle.currentIndex += 1;
+  room.puzzle.lookoutScanned = false;
+  room.puzzle.routeReady = false;
+  room.puzzle.signalReady = false;
+  room.puzzle.signalId = null;
+  room.puzzle.incidentStartedAt = now;
+  addLog(room, "Новая авария! Наблюдатель, запускайте сканер.", "system");
+}
+
+function addChaos(room, text, forcedEffect = null) {
+  if (room.phase !== "playing") return;
+  room.mistakes += 1;
+  const effect = CHAOS_EFFECTS.find(item => item.id === forcedEffect)
+    || CHAOS_EFFECTS[Math.floor(Math.random() * CHAOS_EFFECTS.length)];
+  room.puzzle.chaos = effect;
+  room.puzzle.chaosUntil = Date.now() + 4200;
+  addLog(room, `${text} ${effect.label}. Сбой ${room.mistakes}/${room.maxMistakes}.`, "danger");
+  if (!room.tutorial && room.mistakes >= room.maxMistakes) {
+    finishRoom(room, "lost", "mistakes", "Слишком много сбоев. Реактор разрушен.", "danger");
+  }
 }
 
 function triggerPlayerAction(player, action) {
@@ -824,7 +992,7 @@ function buildState(room, player) {
         background: room.scenario.background,
         accent: room.scenario.accent,
         music: room.scenario.music,
-        durationSec: room.tutorial ? 600 : room.scenario.durationSec
+        durationSec: room.tutorial ? 90 : room.scenario.durationSec
       } : null,
       modules: Object.fromEntries(Object.entries(MODULES).map(([id, module]) => [id, {
         ...module,
@@ -846,9 +1014,78 @@ function buildState(room, player) {
         actionSeq: other.actionSeq || 0,
         actionAgeMs: other.action && now < other.actionUntil ? now - other.actionStartedAt : 0
       })),
-      puzzleView: room.puzzle ? puzzleViewFor(room.puzzle, player.role, room.tutorial) : null
+      puzzleView: room.puzzle ? partyViewFor(room.puzzle, player.role, room.tutorial) : null
     }
   };
+}
+
+function partyViewFor(puzzle, role, tutorial = false) {
+  const now = Date.now();
+  const incident = currentIncident(puzzle);
+  const common = {
+    role,
+    progress: {
+      resolvedCount: puzzle.resolvedCount,
+      totalIncidents: puzzle.incidents.length,
+      incidentIndex: puzzle.currentIndex,
+      activeModule: incident?.station || null,
+      moduleOrder: puzzle.incidents.map(item => item.station)
+    },
+    phase: !puzzle.lookoutScanned
+      ? "scan"
+      : !puzzle.routeReady
+        ? "route"
+        : !puzzle.signalReady ? "signal" : "action",
+    team: {
+      scanned: puzzle.lookoutScanned,
+      routeReady: puzzle.routeReady,
+      signalReady: puzzle.signalReady,
+      signalId: puzzle.signalId
+    },
+    incidentTimer: Math.max(0, Math.ceil((puzzle.incidentDurationSec * 1000 - (now - puzzle.incidentStartedAt)) / 1000)),
+    chaos: puzzle.chaosUntil > now ? { ...puzzle.chaos, remainingMs: puzzle.chaosUntil - now } : null,
+    lastResolved: puzzle.lastResolvedAt && now - puzzle.lastResolvedAt < 1800 ? puzzle.lastResolved : null,
+    incident: incident ? {
+      id: incident.id,
+      title: incident.title,
+      alert: incident.alert,
+      station: incident.station
+    } : null
+  };
+
+  if (!incident) return common;
+
+  if (role === "lookout") {
+    return {
+      ...common,
+      scanner: puzzle.lookoutScanned ? {
+        station: incident.station,
+        alert: incident.alert
+      } : null
+    };
+  }
+
+  if (role === "scribe") {
+    const solution = incident.choices.find(choice => choice.id === incident.solutionId);
+    return {
+      ...common,
+      manual: puzzle.routeReady ? {
+        solution: { ...solution },
+        choices: incident.choices.map(choice => ({ ...choice }))
+      } : null
+    };
+  }
+
+  if (role === "operator") {
+    const solution = incident.choices.find(choice => choice.id === incident.solutionId);
+    return {
+      ...common,
+      choices: incident.choices.map(choice => ({ ...choice })),
+      training: tutorial ? { solution: { ...solution } } : undefined
+    };
+  }
+
+  return { ...common, observer: true };
 }
 
 function puzzleViewFor(puzzle, role, tutorial = false) {

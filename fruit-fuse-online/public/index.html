@@ -19,7 +19,7 @@
       <div class="boot-content">
         <p class="eyebrow">КООПЕРАТИВНАЯ АВАРИЙНАЯ СМЕНА</p>
         <h1>CORE<br><span>BELOW</span></h1>
-        <p class="boot-copy">Трое специалистов. Один реактор.<br>У каждого только часть решения.</p>
+        <p class="boot-copy">Четыре быстрые аварии. Три необычных специалиста.<br>Сканируйте, передавайте знак и спасайте реактор вместе.</p>
 
         <div class="join-box">
           <label>
@@ -34,8 +34,30 @@
             <button id="joinButton" class="primary">ВОЙТИ В СМЕНУ</button>
             <button id="tutorialButton">ОБУЧЕНИЕ</button>
           </div>
+          <p class="tutorial-gate" id="tutorialGate" aria-live="polite"></p>
           <button id="statsOpenMenu" class="stats-menu-button">СТАТИСТИКА</button>
           <p class="connection-status" id="connectionStatus" role="status" aria-live="polite"></p>
+        </div>
+      </div>
+    </section>
+
+    <section class="tutorial-intro" id="tutorialIntro" role="dialog" aria-modal="true" aria-labelledby="tutorialIntroTitle" hidden>
+      <div class="tutorial-intro-backdrop"></div>
+      <div class="tutorial-intro-content">
+        <span>ОБЯЗАТЕЛЬНОЕ ОБУЧЕНИЕ · ОКОЛО 90 СЕКУНД</span>
+        <h2 id="tutorialIntroTitle">УВИДЕТЬ.<br>ПОДАТЬ ЗНАК.<br>ИСПРАВИТЬ.</h2>
+        <p>Вы устраните одну аварию и по очереди попробуете все три роли. Игра сама переключит следующий шаг.</p>
+        <div class="tutorial-flow" aria-label="Три шага командной работы">
+          <div><b>1</b><strong>НАБЛЮДАТЕЛЬ</strong><small>сканирует место аварии</small></div>
+          <i>→</i>
+          <div><b>2</b><strong>АРХИВАРИУС</strong><small>передаёт один символ</small></div>
+          <i>→</i>
+          <div><b>3</b><strong>ОПЕРАТОР</strong><small>идёт к станции и чинит</small></div>
+        </div>
+        <p class="tutorial-intro-note">Здесь нельзя проиграть. Каждый экран показывает только одно необходимое действие.</p>
+        <div class="tutorial-intro-actions">
+          <button id="tutorialIntroBack">НАЗАД</button>
+          <button id="tutorialIntroStart" class="primary">НАЧАТЬ ОБУЧЕНИЕ</button>
         </div>
       </div>
     </section>
@@ -47,20 +69,23 @@
         <div class="status-scenario" id="scenarioName">ОЖИДАНИЕ СМЕНЫ</div>
         <div class="status-room">КОМНАТА <strong id="roomCode">-----</strong></div>
         <div class="status-time" id="timer">--:--</div>
-        <div class="status-strikes">ОШИБКИ <strong id="strikes">0/3</strong></div>
-        <div class="module-dots" id="moduleDots" aria-label="Прогресс модулей"></div>
+        <div class="status-strikes">СБОИ <strong id="strikes">0/6</strong></div>
+        <div class="module-dots" id="moduleDots" aria-label="Прогресс аварий"></div>
         <button id="statsOpenGame" class="icon-button" title="Открыть статистику" aria-label="Открыть статистику">▥</button>
         <button id="audioButton" class="icon-button" title="Выключить звук" aria-label="Выключить звук">♫</button>
         <button id="menuButton" class="icon-button" title="Вернуться в меню" aria-label="Вернуться в меню">×</button>
       </header>
 
       <section class="tutorial-role-bar" id="tutorialRoleBar" aria-label="Роль в обучении" hidden>
-        <strong>ТРЕНИРОВКА РОЛИ</strong>
-        <div>
-          <button data-tutorial-role="lookout">① НАБЛЮДАТЕЛЬ</button>
-          <button data-tutorial-role="scribe">② АРХИВАРИУС</button>
-          <button data-tutorial-role="operator">③ ОПЕРАТОР</button>
+        <strong id="tutorialModuleLabel">УЧЕБНАЯ АВАРИЯ</strong>
+        <div class="tutorial-steps">
+          <span data-tutorial-step="lookout"><b>1</b> СКАН</span>
+          <i>→</i>
+          <span data-tutorial-step="scribe"><b>2</b> СИМВОЛ</span>
+          <i>→</i>
+          <span data-tutorial-step="operator"><b>3</b> ДЕЙСТВИЕ</span>
         </div>
+        <button id="tutorialNextButton" class="primary" hidden>ДАЛЬШЕ</button>
       </section>
 
       <section class="arena-frame" aria-label="Игровая зона">
@@ -68,13 +93,13 @@
           <canvas id="game" width="960" height="540" tabindex="0"></canvas>
 
           <div class="station-label station-wires">
-            <i></i><span>ПРОВОДА</span>
+            <i></i><span>СКЛАД</span>
           </div>
           <div class="station-label station-glyphs">
-            <i></i><span>ЗНАКИ</span>
+            <i></i><span>ПУЛЬТ</span>
           </div>
           <div class="station-label station-coolant">
-            <i></i><span>ОХЛАЖДЕНИЕ</span>
+            <i></i><span>СЕРВИС</span>
           </div>
 
           <section class="objective-card" id="tutorialCard" aria-live="polite"></section>
@@ -90,7 +115,7 @@
             <div id="intelPanel" class="intel-content"></div>
             <div id="actionPanel" class="action-grid"></div>
             <div id="routeControls" class="route-controls" hidden>
-              <span class="route-label">НАПРАВИТЬ ОПЕРАТОРА</span>
+              <span class="route-label">ПОДСКАЗАТЬ НАПРАВЛЕНИЕ</span>
               <div class="route-pad">
                 <button data-ping="Левее" aria-label="Направить левее" title="Левее">←</button>
                 <button data-ping="Вверх" aria-label="Направить вверх" title="Вверх">↑</button>
@@ -135,7 +160,7 @@
 
       <section class="relay" id="relayPanel">
         <div class="relay-head">
-          <strong>СВЯЗЬ С ЭКИПАЖЕМ</strong>
+          <strong>КОМАНДНЫЙ КАНАЛ</strong>
           <span id="crewCount">0 В СЕТИ</span>
         </div>
         <div id="log" class="log"></div>
