@@ -1193,3 +1193,85 @@
     padding: 0 11px;
   }
 }
+
+/* Mode picker replaces the old player-count and weapon selectors. */
+@media (max-width: 760px) and (orientation: portrait) {
+  .match-controls,
+  .app-shell[data-online="true"] .match-controls {
+    grid-template-columns: 34px 58px 30px minmax(0, 1fr);
+  }
+
+  .match-controls .mode-launch,
+  .app-shell[data-online="false"] #new-game.mode-launch {
+    min-width: 0;
+    min-height: 32px;
+    display: grid;
+    padding: 3px 6px 3px 8px;
+    font-size: inherit;
+  }
+
+  .app-shell[data-online="false"] #new-game.mode-launch::before {
+    content: none;
+  }
+
+  .mode-launch-copy small {
+    display: none;
+  }
+
+  .mode-launch-copy strong {
+    font-size: 10px;
+  }
+
+  .mode-launch-arrow {
+    font-size: 19px;
+  }
+
+  .online-mode {
+    grid-template-columns: 36px minmax(0, 1fr) auto;
+    gap: 7px;
+    padding: 7px;
+  }
+
+  .online-mode-icon {
+    width: 36px;
+    height: 36px;
+  }
+
+  .online-mode-copy strong {
+    font-size: 11px;
+  }
+}
+
+@media (max-height: 680px) and (orientation: landscape) {
+  .match-controls,
+  .app-shell[data-online="true"] .match-controls {
+    grid-template-columns: 34px 64px 30px minmax(126px, 1fr);
+  }
+
+  .match-controls .mode-launch,
+  .app-shell[data-online="false"] #new-game.mode-launch {
+    min-width: 126px;
+    min-height: 32px;
+    display: grid;
+    padding: 3px 6px 3px 8px;
+    font-size: inherit;
+  }
+
+  .app-shell[data-online="false"] #new-game.mode-launch::before {
+    content: none;
+  }
+
+  .mode-launch-copy small {
+    display: none;
+  }
+
+  .mode-launch-copy strong {
+    font-size: 10px;
+  }
+
+  .online-mode {
+    margin-top: 7px;
+    padding-top: 5px;
+    padding-bottom: 5px;
+  }
+}

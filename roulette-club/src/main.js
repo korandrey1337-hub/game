@@ -1,15 +1,23 @@
-import { ITEM_DEFS, RouletteGame, WEAPON_SKINS } from "./game.js?v=20261006-1";
-import { OnlineClient } from "./online.js?v=20261006-1";
-import { ROULETTE_STATS_KEY, RouletteStats } from "./stats.js?v=20261006-1";
+import { ITEM_DEFS, RouletteGame, WEAPON_SKINS } from "./game.js?v=20261006-2";
+import { OnlineClient } from "./online.js?v=20261006-2";
+import { ROULETTE_STATS_KEY, RouletteStats } from "./stats.js?v=20261006-2";
 
 const canvas = document.querySelector("#club-scene");
 const ctx = canvas.getContext("2d", { alpha: false });
 const backdropCanvas = document.createElement("canvas");
 const backdropCtx = backdropCanvas.getContext("2d");
 
-const playerCountSelect = document.querySelector("#player-count");
-const weaponSkinSelect = document.querySelector("#weapon-skin");
 const newGameButton = document.querySelector("#new-game");
+const currentModeLabelEl = document.querySelector("#current-mode-label");
+const modePanelEl = document.querySelector("#mode-panel");
+const modeBackdropEl = document.querySelector("#mode-backdrop");
+const modeCloseButton = document.querySelector("#mode-close");
+const modeCancelButton = document.querySelector("#mode-cancel");
+const modeConfirmButton = document.querySelector("#mode-confirm");
+const modeKickerEl = document.querySelector("#mode-kicker");
+const modeTitleEl = document.querySelector("#mode-title");
+const modeNoteEl = document.querySelector("#mode-note");
+const modeCards = [...document.querySelectorAll(".mode-card")];
 const playersEl = document.querySelector("#players");
 const roundCardEl = document.querySelector("#round-card");
 const turnTitleEl = document.querySelector("#turn-title");
@@ -45,8 +53,9 @@ const onlineJoinButton = document.querySelector("#online-join");
 const onlineCopyCodeButton = document.querySelector("#online-copy-code");
 const onlineStatusEl = document.querySelector("#online-status");
 const onlinePlayersEl = document.querySelector("#online-players");
-const onlinePlayerCountSelect = document.querySelector("#online-player-count");
-const onlineWeaponSelect = document.querySelector("#online-weapon");
+const onlineModeNameEl = document.querySelector("#online-mode-name");
+const onlineModeRulesEl = document.querySelector("#online-mode-rules");
+const onlineModeEditButton = document.querySelector("#online-mode-edit");
 const onlineHintEl = document.querySelector("#online-hint");
 const onlineReadyButton = document.querySelector("#online-ready");
 const onlineStartButton = document.querySelector("#online-start");
@@ -66,6 +75,7 @@ const resultTitleEl = document.querySelector("#result-title");
 const resultSubtitleEl = document.querySelector("#result-subtitle");
 const resultMetricsEl = document.querySelector("#result-metrics");
 const resultStatsButton = document.querySelector("#result-stats");
+const resultModeButton = document.querySelector("#result-mode");
 const resultReplayButton = document.querySelector("#result-replay");
 const topbarEl = document.querySelector(".topbar");
 const scoreboardEl = document.querySelector(".scoreboard");
@@ -116,6 +126,36 @@ const LEADERBOARD_PLAYERS = [
   { id: "p2", name: "Бетонный Джим" },
   { id: "p3", name: "Смузи-Бригадир" },
 ];
+const GAME_MODES = [
+  {
+    id: "duel-classic",
+    title: "Классическая дуэль",
+    shortTitle: "Дуэль · Револьвер",
+    playerCount: 2,
+    weaponSkin: "revolver",
+  },
+  {
+    id: "duel-blitz",
+    title: "Блиц-дуэль",
+    shortTitle: "Дуэль · Дробовик",
+    playerCount: 2,
+    weaponSkin: "shotgun",
+  },
+  {
+    id: "club-classic",
+    title: "Клубный стол",
+    shortTitle: "4 игрока · Револьвер",
+    playerCount: 4,
+    weaponSkin: "revolver",
+  },
+  {
+    id: "club-chaos",
+    title: "Полный хаос",
+    shortTitle: "4 игрока · Дробовик",
+    playerCount: 4,
+    weaponSkin: "shotgun",
+  },
+];
 const CHARACTER_KEYS = ["p0", "p1", "p2", "p3"];
 const images = {};
 const particles = [];
@@ -123,6 +163,10 @@ const visualBursts = [];
 const playerAnims = new Map();
 
 let pendingItem = null;
+let selectedGameModeId = "duel-classic";
+let modeDraftId = selectedGameModeId;
+let modePanelContext = "local";
+let modeReturnFocusEl = newGameButton;
 let botTimer = null;
 let lastAnimatedRevision = -1;
 let audioCtx = null;
@@ -237,6 +281,7 @@ Promise.allSettled(
   ),
 ).then(() => {
   resizeCanvas();
+  renderModeButton();
   if (!hasSeenTutorial() && !qaMode) {
     openTutorial(0);
   }
@@ -246,7 +291,16 @@ Promise.allSettled(
 });
 
 newGameButton.addEventListener("click", () => {
-  startNewMatch();
+  if (onlineRoom) openOnlinePanel();
+  else openModePanel("local");
+});
+
+modeBackdropEl.addEventListener("click", closeModePanel);
+modeCloseButton.addEventListener("click", closeModePanel);
+modeCancelButton.addEventListener("click", closeModePanel);
+modeConfirmButton.addEventListener("click", confirmModeSelection);
+modeCards.forEach((card) => {
+  card.addEventListener("click", () => selectModeDraft(card.dataset.mode));
 });
 
 tutorialOpenButton.addEventListener("click", () => {
@@ -266,8 +320,7 @@ onlineStartButton.addEventListener("click", () => {
   onlineClient.send({ type: onlineRoom?.phase === "finished" ? "rematch" : "start" });
 });
 onlineLeaveButton.addEventListener("click", leaveOnlineRoom);
-onlinePlayerCountSelect.addEventListener("change", configureOnlineRoom);
-onlineWeaponSelect.addEventListener("change", configureOnlineRoom);
+onlineModeEditButton.addEventListener("click", () => openModePanel("online"));
 onlineCodeInput.addEventListener("input", () => {
   onlineCodeInput.value = onlineCodeInput.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 5);
 });
@@ -287,6 +340,10 @@ statsCloseIconButton.addEventListener("click", closeStatsPanel);
 statsBackdropEl.addEventListener("click", closeStatsPanel);
 resultReplayButton.addEventListener("click", startNewMatch);
 resultStatsButton.addEventListener("click", openStatsPanel);
+resultModeButton.addEventListener("click", () => {
+  if (onlineRoom) openOnlinePanel();
+  else openModePanel("local");
+});
 
 tutorialSkipButton.addEventListener("click", () => {
   closeTutorial();
@@ -298,14 +355,6 @@ tutorialNextButton.addEventListener("click", () => {
     return;
   }
   openTutorial(tutorialIndex + 1);
-});
-
-playerCountSelect.addEventListener("change", () => {
-  startNewMatch();
-});
-
-weaponSkinSelect.addEventListener("change", () => {
-  startNewMatch();
 });
 
 window.addEventListener("resize", scheduleResizeCanvas);
@@ -322,7 +371,8 @@ window.addEventListener("keydown", (event) => {
     return;
   }
   if (event.key !== "Escape") return;
-  if (!onlinePanelEl.hidden) closeOnlinePanel();
+  if (!modePanelEl.hidden) closeModePanel();
+  else if (!onlinePanelEl.hidden) closeOnlinePanel();
   else if (!statsPanelEl.hidden) closeStatsPanel();
   else if (!tutorialEl.hidden) closeTutorial();
 });
@@ -468,6 +518,87 @@ function loadImage(src) {
   });
 }
 
+function getGameMode(modeId = selectedGameModeId) {
+  return GAME_MODES.find((mode) => mode.id === modeId) ?? GAME_MODES[0];
+}
+
+function findGameMode(playerCount, weaponSkin) {
+  return GAME_MODES.find((mode) => mode.playerCount === Number(playerCount) && mode.weaponSkin === weaponSkin)
+    ?? GAME_MODES[0];
+}
+
+function openModePanel(context = "local") {
+  if (context === "online" && (!onlineRoom?.isHost || onlineRoom.phase !== "lobby")) return;
+  modePanelContext = context;
+  if (document.activeElement instanceof HTMLElement) modeReturnFocusEl = document.activeElement;
+  const sourceMode = context === "online"
+    ? findGameMode(onlineRoom.playerCount, onlineRoom.weaponSkin)
+    : getGameMode();
+  modeDraftId = sourceMode.id;
+  modeKickerEl.textContent = context === "online" ? `комната ${onlineRoom.code}` : "новый матч";
+  modeTitleEl.textContent = context === "online" ? "Режим комнаты" : "Выбери режим";
+  modeNoteEl.textContent = context === "online"
+    ? "Режим задаёт хост. После смены игроки подтверждают готовность заново."
+    : "В одиночной игре остальные места займут соперники.";
+  modeConfirmButton.textContent = context === "online" ? "Сохранить режим" : "Начать матч";
+  renderModePanel();
+  modePanelEl.hidden = false;
+  modeCards.find((card) => card.dataset.mode === modeDraftId)?.focus({ preventScroll: true });
+}
+
+function closeModePanel({ restoreFocus = true } = {}) {
+  if (modePanelEl.hidden) return;
+  modePanelEl.hidden = true;
+  if (!restoreFocus) return;
+  const fallback = modeReturnFocusEl?.offsetParent !== null
+    ? modeReturnFocusEl
+    : modePanelContext === "online" ? onlineModeEditButton : newGameButton;
+  if (fallback?.offsetParent !== null) fallback.focus({ preventScroll: true });
+}
+
+function selectModeDraft(modeId) {
+  if (!GAME_MODES.some((mode) => mode.id === modeId)) return;
+  modeDraftId = modeId;
+  renderModePanel();
+}
+
+function renderModePanel() {
+  modeCards.forEach((card) => {
+    const selected = card.dataset.mode === modeDraftId;
+    card.classList.toggle("is-selected", selected);
+    card.setAttribute("aria-checked", String(selected));
+  });
+}
+
+function confirmModeSelection() {
+  const mode = getGameMode(modeDraftId);
+  if (modePanelContext === "online") {
+    configureOnlineRoom(mode);
+    closeModePanel({ restoreFocus: false });
+    onlineReadyButton.focus({ preventScroll: true });
+    return;
+  }
+  selectedGameModeId = mode.id;
+  renderModeButton();
+  closeModePanel({ restoreFocus: false });
+  startNewMatch();
+}
+
+function renderModeButton() {
+  const mode = getGameMode();
+  currentModeLabelEl.textContent = mode.shortTitle;
+  newGameButton.setAttribute("aria-label", onlineRoom
+    ? `${mode.title}. Открыть онлайн-комнату`
+    : `${mode.title}. Выбрать другой режим`);
+  newGameButton.title = onlineRoom ? "Открыть онлайн-комнату" : "Выбрать режим";
+}
+
+function modeRulesText(mode) {
+  const weapon = WEAPON_SKINS[mode.weaponSkin];
+  const weaponName = weapon.name.replace(/^Проп-/i, "").toLowerCase();
+  return `${mode.playerCount} игрока · ${weaponName} · ${weapon.damage} ${weapon.damage === 1 ? "урон" : "урона"}`;
+}
+
 function openOnlinePanel() {
   clearOnlineError();
   renderOnlinePanel();
@@ -489,12 +620,13 @@ function joinOnlineRoom(create) {
     return;
   }
   onlineStatus = "connecting";
+  const mode = getGameMode();
   onlineClient.join({
     name: onlineNameInput.value,
     roomCode: create ? "" : roomCode,
     create,
-    playerCount: Number(playerCountSelect.value),
-    weaponSkin: weaponSkinSelect.value,
+    playerCount: mode.playerCount,
+    weaponSkin: mode.weaponSkin,
   });
   renderOnlinePanel();
 }
@@ -507,10 +639,7 @@ function applyOnlineRoom(room) {
   clearOnlineError();
   updateOnlineInviteUrl(room.code);
 
-  playerCountSelect.value = String(room.playerCount);
-  weaponSkinSelect.value = room.weaponSkin;
-  playerCountSelect.disabled = true;
-  weaponSkinSelect.disabled = true;
+  selectedGameModeId = findGameMode(room.playerCount, room.weaponSkin).id;
 
   if (room.game) {
     const newMatch = previousMatchId !== room.game.matchId;
@@ -552,9 +681,7 @@ function renderOnlinePanel() {
   onlineRoomEl.hidden = !room;
   onlineOpenButton.classList.toggle("is-connected", Boolean(room));
   onlineOpenButton.textContent = room?.code || "Онлайн";
-  newGameButton.textContent = room ? "Комната" : "Новая игра";
-  newGameButton.setAttribute("aria-label", room ? "Открыть онлайн-комнату" : "Начать новую игру");
-  newGameButton.title = room ? "Онлайн-комната" : "Новая игра";
+  renderModeButton();
 
   if (!room) {
     onlineStatusEl.textContent = onlineStatusLabel();
@@ -589,11 +716,12 @@ function renderOnlinePanel() {
     return row;
   }));
 
-  onlinePlayerCountSelect.value = String(room.playerCount);
-  onlineWeaponSelect.value = room.weaponSkin;
+  const roomMode = findGameMode(room.playerCount, room.weaponSkin);
+  onlineModeNameEl.textContent = roomMode.title;
+  onlineModeRulesEl.textContent = modeRulesText(roomMode);
+  onlineModeEditButton.closest(".online-mode").dataset.weapon = roomMode.weaponSkin;
   const configuring = room.phase === "lobby" && room.isHost;
-  onlinePlayerCountSelect.disabled = !configuring;
-  onlineWeaponSelect.disabled = !configuring;
+  onlineModeEditButton.hidden = !configuring;
 
   const self = room.players.find((player) => player.isSelf);
   onlineReadyButton.hidden = room.phase !== "lobby";
@@ -618,12 +746,12 @@ function renderOnlinePanel() {
   }
 }
 
-function configureOnlineRoom() {
+function configureOnlineRoom(mode) {
   if (!onlineRoom?.isHost || onlineRoom.phase !== "lobby") return;
   onlineClient.send({
     type: "configure",
-    playerCount: Number(onlinePlayerCountSelect.value),
-    weaponSkin: onlineWeaponSelect.value,
+    playerCount: mode.playerCount,
+    weaponSkin: mode.weaponSkin,
   });
 }
 
@@ -648,8 +776,6 @@ function leaveOnlineRoom() {
   onlineRoom = null;
   onlineMode = false;
   onlineActionPending = false;
-  playerCountSelect.disabled = false;
-  weaponSkinSelect.disabled = false;
   updateOnlineInviteUrl(null);
   closeOnlinePanel();
   startNewMatch();
@@ -718,8 +844,8 @@ function startNewMatch() {
   playerAnims.clear();
   impact.event = null;
   game.newGame({
-    playerCount: Number(playerCountSelect.value),
-    weaponSkin: weaponSkinSelect.value,
+    playerCount: getGameMode().playerCount,
+    weaponSkin: getGameMode().weaponSkin,
   });
   rouletteStats.recordMatchStart(game.state);
   prepareMatchCinematic();
@@ -1458,7 +1584,8 @@ function closeTutorial() {
 }
 
 function activeModalPanel() {
-  return [statsPanelEl, onlinePanelEl, tutorialEl, resultPanelEl].find((panel) => panel && !panel.hidden) ?? null;
+  return [modePanelEl, statsPanelEl, onlinePanelEl, tutorialEl, resultPanelEl]
+    .find((panel) => panel && !panel.hidden) ?? null;
 }
 
 function trapModalFocus(event, panel) {

@@ -4,8 +4,8 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Build Ways Duel Club</title>
-    <link rel="stylesheet" href="./styles.css?v=20261006-1" />
-    <link rel="stylesheet" href="./mobile.css?v=20261006-1" />
+    <link rel="stylesheet" href="./styles.css?v=20261006-2" />
+    <link rel="stylesheet" href="./mobile.css?v=20261006-2" />
     <script defer src="https://telegram.org/js/telegram-web-app.js"></script>
   </head>
   <body>
@@ -22,20 +22,6 @@
         </div>
 
         <div class="match-controls">
-          <label>
-            <span>Игроки</span>
-            <select id="player-count">
-              <option value="2">2</option>
-              <option value="4">4</option>
-            </select>
-          </label>
-          <label>
-            <span>Скин</span>
-            <select id="weapon-skin">
-              <option value="revolver">Револьвер · 1 HP</option>
-              <option value="shotgun">Дробовик · 2 HP</option>
-            </select>
-          </label>
           <button
             id="music-toggle"
             class="ghost-button audio-toggle"
@@ -47,8 +33,74 @@
           <button id="online-open" class="ghost-button online-open" type="button">Онлайн</button>
           <button id="tutorial-open" class="ghost-button" type="button">Правила</button>
           <button id="stats-open" class="ghost-button" type="button">Статы</button>
-          <button id="new-game" type="button">Новая игра</button>
+          <button id="new-game" class="mode-launch" type="button" aria-label="Выбрать режим игры">
+            <span class="mode-launch-copy">
+              <small>режим</small>
+              <strong id="current-mode-label">Классическая дуэль</strong>
+            </span>
+            <span class="mode-launch-arrow" aria-hidden="true">›</span>
+          </button>
         </div>
+      </section>
+
+      <section id="mode-panel" class="mode-panel" aria-label="Выбор режима" hidden>
+        <div id="mode-backdrop" class="mode-backdrop"></div>
+        <article class="mode-dialog" role="dialog" aria-modal="true" aria-labelledby="mode-title">
+          <header class="mode-header">
+            <div>
+              <p id="mode-kicker" class="eyebrow">новый матч</p>
+              <h2 id="mode-title">Выбери режим</h2>
+            </div>
+            <button id="mode-close" class="stats-close-icon" type="button" aria-label="Закрыть выбор режима">×</button>
+          </header>
+
+          <div id="mode-grid" class="mode-grid" role="radiogroup" aria-label="Режимы игры">
+            <button class="mode-card" type="button" role="radio" data-mode="duel-classic" aria-checked="true">
+              <img src="./assets/art/weapon-revolver.webp" alt="" />
+              <span class="mode-card-copy">
+                <span class="mode-card-meta">2 игрока · 1 урон</span>
+                <strong>Классическая дуэль</strong>
+                <small>Тактика, память и длинная партия.</small>
+              </span>
+              <span class="mode-check" aria-hidden="true">✓</span>
+            </button>
+            <button class="mode-card" type="button" role="radio" data-mode="duel-blitz" aria-checked="false">
+              <img src="./assets/art/weapon-shotgun.webp" alt="" />
+              <span class="mode-card-copy">
+                <span class="mode-card-meta">2 игрока · 2 урона</span>
+                <strong>Блиц-дуэль</strong>
+                <small>Быстрые раунды и дорогая ошибка.</small>
+              </span>
+              <span class="mode-check" aria-hidden="true">✓</span>
+            </button>
+            <button class="mode-card" type="button" role="radio" data-mode="club-classic" aria-checked="false">
+              <img src="./assets/art/weapon-revolver.webp" alt="" />
+              <span class="mode-card-copy">
+                <span class="mode-card-meta">4 игрока · 1 урон</span>
+                <strong>Клубный стол</strong>
+                <small>Больше целей, предметов и интриг.</small>
+              </span>
+              <span class="mode-check" aria-hidden="true">✓</span>
+            </button>
+            <button class="mode-card" type="button" role="radio" data-mode="club-chaos" aria-checked="false">
+              <img src="./assets/art/weapon-shotgun.webp" alt="" />
+              <span class="mode-card-copy">
+                <span class="mode-card-meta">4 игрока · 2 урона</span>
+                <strong>Полный хаос</strong>
+                <small>Самый короткий и жёсткий стол.</small>
+              </span>
+              <span class="mode-check" aria-hidden="true">✓</span>
+            </button>
+          </div>
+
+          <footer class="mode-footer">
+            <p id="mode-note">В одиночной игре остальные места займут соперники.</p>
+            <div>
+              <button id="mode-cancel" class="ghost-button" type="button">Отмена</button>
+              <button id="mode-confirm" type="button">Начать матч</button>
+            </div>
+          </footer>
+        </article>
       </section>
 
       <aside class="scoreboard" aria-label="Состояние игроков">
@@ -153,21 +205,14 @@
 
             <div id="online-players" class="online-players"></div>
 
-            <div class="online-config">
-              <label>
-                <span>Мест</span>
-                <select id="online-player-count">
-                  <option value="2">2 игрока</option>
-                  <option value="4">4 игрока</option>
-                </select>
-              </label>
-              <label>
-                <span>Оружие</span>
-                <select id="online-weapon">
-                  <option value="revolver">Револьвер · 1 HP</option>
-                  <option value="shotgun">Дробовик · 2 HP</option>
-                </select>
-              </label>
+            <div class="online-mode">
+              <div class="online-mode-icon" aria-hidden="true"></div>
+              <div class="online-mode-copy">
+                <span>Режим комнаты</span>
+                <strong id="online-mode-name">Классическая дуэль</strong>
+                <small id="online-mode-rules">2 игрока · револьвер · 1 урон</small>
+              </div>
+              <button id="online-mode-edit" class="ghost-button" type="button">Сменить</button>
             </div>
 
             <p id="online-hint" class="online-hint"></p>
@@ -196,6 +241,7 @@
             <div id="result-metrics" class="result-metrics"></div>
             <div class="result-actions">
               <button id="result-stats" class="ghost-button" type="button">Статистика</button>
+              <button id="result-mode" class="ghost-button" type="button">Сменить режим</button>
               <button id="result-replay" type="button">Реванш</button>
             </div>
           </div>
@@ -211,6 +257,6 @@
       playsinline
     ></audio>
 
-    <script type="module" src="./src/main.js?v=20261006-1"></script>
+    <script type="module" src="./src/main.js?v=20261006-2"></script>
   </body>
 </html>

@@ -204,7 +204,7 @@ h2 {
 
 .match-controls {
   display: flex;
-  align-items: end;
+  align-items: center;
   justify-content: flex-end;
   gap: 9px;
   flex-wrap: wrap;
@@ -269,6 +269,220 @@ h2 {
   color: var(--ink);
   border-color: rgba(98, 215, 197, 0.68);
   background: linear-gradient(180deg, #8aeadc, var(--teal));
+}
+
+.match-controls .mode-launch {
+  min-width: 188px;
+  min-height: 40px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 16px;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 9px 4px 11px;
+  text-align: left;
+}
+
+.mode-launch-copy {
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+
+.mode-launch-copy small {
+  color: rgba(23, 17, 20, 0.68);
+  font-size: 8px;
+  font-weight: 900;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.mode-launch-copy strong {
+  overflow: hidden;
+  font-size: 11px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mode-launch-arrow {
+  font-size: 23px;
+  font-weight: 500;
+  line-height: 1;
+  transform: translateY(-1px);
+}
+
+.mode-panel {
+  position: fixed;
+  inset: 0;
+  z-index: 15;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+}
+
+.mode-panel[hidden] {
+  display: none;
+}
+
+.mode-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(4, 2, 4, 0.8);
+  backdrop-filter: blur(8px) saturate(0.82);
+}
+
+.mode-dialog {
+  position: relative;
+  width: min(760px, calc(100vw - 28px));
+  max-height: calc(var(--app-height) - 28px);
+  overflow: auto;
+  padding: 18px;
+  border: 1px solid rgba(255, 222, 139, 0.42);
+  border-radius: 8px;
+  background:
+    radial-gradient(circle at 50% 0%, rgba(243, 184, 77, 0.12), transparent 38%),
+    linear-gradient(155deg, rgba(55, 31, 33, 0.99), rgba(13, 8, 10, 0.99));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.09),
+    0 30px 90px rgba(0, 0, 0, 0.74);
+}
+
+.mode-header,
+.mode-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.mode-header h2 {
+  font-size: 25px;
+}
+
+.mode-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.mode-card {
+  position: relative;
+  min-width: 0;
+  min-height: 116px;
+  display: grid;
+  grid-template-columns: 104px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  overflow: hidden;
+  color: var(--text);
+  border-color: rgba(255, 222, 139, 0.2);
+  background:
+    linear-gradient(145deg, rgba(255, 245, 223, 0.07), rgba(255, 245, 223, 0.018)),
+    rgba(8, 5, 7, 0.54);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  text-align: left;
+}
+
+.mode-card:hover:not(:disabled) {
+  transform: translateY(-2px);
+}
+
+.mode-card.is-selected {
+  color: var(--text);
+  border-color: rgba(98, 215, 197, 0.78);
+  background:
+    linear-gradient(145deg, rgba(98, 215, 197, 0.15), rgba(243, 184, 77, 0.07)),
+    rgba(12, 8, 9, 0.9);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 0 0 1px rgba(98, 215, 197, 0.16),
+    0 14px 34px rgba(0, 0, 0, 0.28);
+}
+
+.mode-card img {
+  width: 100%;
+  height: 86px;
+  object-fit: contain;
+  filter: drop-shadow(0 8px 8px rgba(0, 0, 0, 0.52));
+  transform: rotate(-5deg);
+}
+
+.mode-card-copy {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.mode-card-meta {
+  color: var(--gold);
+  font-size: 9px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.mode-card-copy strong {
+  font-size: 15px;
+  line-height: 1.15;
+}
+
+.mode-card-copy small {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.3;
+}
+
+.mode-check {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 21px;
+  height: 21px;
+  display: grid;
+  place-items: center;
+  color: var(--ink);
+  border-radius: 50%;
+  background: var(--teal);
+  font-size: 12px;
+  font-weight: 1000;
+  opacity: 0;
+  transform: scale(0.7);
+  transition: opacity 140ms ease, transform 140ms ease;
+}
+
+.mode-card.is-selected .mode-check {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.mode-footer {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(255, 222, 139, 0.16);
+}
+
+.mode-footer > p {
+  max-width: 430px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+.mode-footer > div {
+  display: flex;
+  gap: 8px;
+}
+
+.mode-footer button {
+  min-height: 38px;
+  padding: 0 14px;
+  font-weight: 850;
+}
+
+#mode-confirm {
+  color: var(--ink);
+  background: linear-gradient(180deg, #98ffee, #48baa9);
 }
 
 .online-panel {
@@ -466,6 +680,73 @@ h2 {
   grid-template-columns: 0.75fr 1.25fr;
   gap: 10px;
   margin-top: 11px;
+}
+
+.online-mode {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  margin-top: 11px;
+  padding: 9px 10px;
+  border: 1px solid rgba(255, 222, 139, 0.2);
+  border-radius: 7px;
+  background: rgba(0, 0, 0, 0.22);
+}
+
+.online-mode-icon {
+  width: 42px;
+  height: 42px;
+  border: 1px solid rgba(243, 184, 77, 0.34);
+  border-radius: 7px;
+  background:
+    radial-gradient(circle at 50% 50%, rgba(243, 184, 77, 0.22), transparent 58%),
+    url("./assets/art/weapon-revolver.webp") center / 88% auto no-repeat,
+    rgba(255, 245, 223, 0.04);
+}
+
+.online-mode[data-weapon="shotgun"] .online-mode-icon {
+  background-image:
+    radial-gradient(circle at 50% 50%, rgba(243, 184, 77, 0.22), transparent 58%),
+    url("./assets/art/weapon-shotgun.webp"),
+    none;
+}
+
+.online-mode-copy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.online-mode-copy span,
+.online-mode-copy small {
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.2;
+}
+
+.online-mode-copy span {
+  color: var(--gold);
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.online-mode-copy strong {
+  overflow: hidden;
+  font-size: 13px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.online-mode #online-mode-edit {
+  min-height: 34px;
+  padding: 0 10px;
+  color: var(--text);
+  background: rgba(255, 245, 223, 0.07);
+  font-size: 11px;
+  font-weight: 800;
 }
 
 .online-hint {
@@ -2094,5 +2375,131 @@ h2 {
 
   .event-toast {
     bottom: 76px;
+  }
+}
+
+.match-controls .mode-launch {
+  min-height: 40px;
+  padding: 4px 9px 4px 11px;
+}
+
+.result-actions {
+  flex-wrap: wrap;
+}
+
+@media (max-width: 760px) and (orientation: portrait) {
+  .mode-panel {
+    padding:
+      max(8px, var(--tg-safe-top))
+      max(8px, var(--tg-safe-right))
+      max(8px, var(--tg-safe-bottom))
+      max(8px, var(--tg-safe-left));
+  }
+
+  .mode-dialog {
+    width: 100%;
+    max-height: calc(var(--app-height) - var(--tg-safe-top) - var(--tg-safe-bottom) - 16px);
+    padding: 14px;
+  }
+
+  .mode-header h2 {
+    font-size: 21px;
+  }
+
+  .mode-grid {
+    grid-template-columns: 1fr;
+    gap: 7px;
+    margin-top: 12px;
+  }
+
+  .mode-card {
+    min-height: 88px;
+    grid-template-columns: 84px minmax(0, 1fr);
+    padding: 7px 9px;
+  }
+
+  .mode-card img {
+    height: 70px;
+  }
+
+  .mode-footer {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 9px;
+    margin-top: 12px;
+    padding-top: 10px;
+  }
+
+  .mode-footer > p {
+    max-width: none;
+  }
+
+  .mode-footer > div {
+    justify-content: flex-end;
+  }
+}
+
+@media (max-height: 680px) and (orientation: landscape) {
+  .mode-panel {
+    padding:
+      max(6px, var(--tg-safe-top))
+      max(70px, calc(var(--tg-safe-right) + 10px))
+      max(6px, var(--tg-safe-bottom))
+      max(70px, calc(var(--tg-safe-left) + 10px));
+  }
+
+  .mode-dialog {
+    width: min(820px, 100%);
+    max-height: calc(var(--app-height) - var(--tg-safe-top) - var(--tg-safe-bottom) - 12px);
+    padding: 11px 13px;
+  }
+
+  .mode-header h2 {
+    font-size: 19px;
+  }
+
+  .mode-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 7px;
+    margin-top: 9px;
+  }
+
+  .mode-card {
+    min-height: 128px;
+    grid-template-columns: 1fr;
+    grid-template-rows: 56px minmax(0, 1fr);
+    align-content: start;
+    gap: 3px;
+    padding: 6px;
+  }
+
+  .mode-card img {
+    height: 56px;
+  }
+
+  .mode-card-copy {
+    gap: 2px;
+    text-align: center;
+  }
+
+  .mode-card-copy strong {
+    font-size: 12px;
+  }
+
+  .mode-card-copy small {
+    display: none;
+  }
+
+  .mode-card-meta {
+    font-size: 8px;
+  }
+
+  .mode-footer {
+    margin-top: 9px;
+    padding-top: 8px;
+  }
+
+  .mode-footer > p {
+    max-width: 360px;
   }
 }
