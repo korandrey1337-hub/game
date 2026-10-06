@@ -1,6 +1,6 @@
-import { ITEM_DEFS, RouletteGame, WEAPON_SKINS } from "./game.js?v=20261002-7";
-import { OnlineClient } from "./online.js?v=20261002-7";
-import { ROULETTE_STATS_KEY, RouletteStats } from "./stats.js?v=20261002-7";
+import { ITEM_DEFS, RouletteGame, WEAPON_SKINS } from "./game.js?v=20261006-1";
+import { OnlineClient } from "./online.js?v=20261006-1";
+import { ROULETTE_STATS_KEY, RouletteStats } from "./stats.js?v=20261006-1";
 
 const canvas = document.querySelector("#club-scene");
 const ctx = canvas.getContext("2d", { alpha: false });
@@ -75,6 +75,7 @@ const appShellEl = document.querySelector(".app-shell");
 const game = new RouletteGame({ playerCount: 2, weaponSkin: "revolver" });
 const onlineClient = new OnlineClient();
 const qaMode = new URLSearchParams(window.location.search).has("qa");
+const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 const rouletteStats = new RouletteStats({ key: qaMode ? `${ROULETTE_STATS_KEY}:qa` : ROULETTE_STATS_KEY });
 rouletteStats.startSession({ telegram: Boolean(window.Telegram?.WebApp) });
 rouletteStats.recordMatchStart(game.state);
@@ -104,6 +105,7 @@ const ROUND_REVEAL_MS = 1250;
 const ROUND_LOAD_MS = 1250;
 const ROUND_SETTLE_MS = 200;
 const ROUND_INTRO_MS = ROUND_REVEAL_MS + ROUND_LOAD_MS + ROUND_SETTLE_MS;
+const MATCH_CINEMATIC_MS = 5000;
 const RESULT_REVEAL_MS = SHOT_AIM_MS + SHOT_FLIGHT_MS + 900;
 const LEADERBOARD_KEY = "rouletteClubLeaderboard:v1";
 const MUSIC_MUTED_KEY = "rouletteClubMusicMuted:v1";
@@ -173,6 +175,13 @@ const roundIntro = {
   sequence: 0,
 };
 
+const matchCinematic = {
+  active: false,
+  pending: false,
+  startedAt: 0,
+  sequence: 0,
+};
+
 const TUTORIAL_STEPS = [
   {
     title: "Цель партии",
@@ -231,6 +240,7 @@ Promise.allSettled(
   if (!hasSeenTutorial() && !qaMode) {
     openTutorial(0);
   }
+  prepareMatchCinematic();
   syncAll();
   startDrawLoop();
 });
@@ -345,6 +355,10 @@ canvas.addEventListener("pointerup", (event) => {
   const distance = Math.hypot(event.clientX - pointerDown.x, event.clientY - pointerDown.y);
   pointerDown = null;
   if (distance < 14) {
+    if (matchCinematic.active) {
+      finishMatchCinematic();
+      return;
+    }
     handleSceneClick(event.clientX, event.clientY);
   }
 });
@@ -500,6 +514,7 @@ function applyOnlineRoom(room) {
 
   if (room.game) {
     const newMatch = previousMatchId !== room.game.matchId;
+    const startCinematic = newMatch && room.phase === "playing";
     onlineMode = true;
     clearTimeout(botTimer);
     game.state = room.game;
@@ -513,9 +528,13 @@ function applyOnlineRoom(room) {
       resultReplayButton.textContent = "Реванш";
       appShellEl.dataset.resultOpen = "false";
       rouletteStats.recordMatchStart(game.state);
+      if (startCinematic) prepareMatchCinematic({ defer: true });
     }
     syncAll({ scheduleBots: false });
-    if (room.phase === "playing") closeOnlinePanel();
+    if (room.phase === "playing") {
+      closeOnlinePanel();
+      if (startCinematic) startMatchCinematicPlayback();
+    }
   } else {
     onlineMode = false;
     pendingItem = null;
@@ -703,6 +722,7 @@ function startNewMatch() {
     weaponSkin: weaponSkinSelect.value,
   });
   rouletteStats.recordMatchStart(game.state);
+  prepareMatchCinematic();
   syncAll();
 }
 
@@ -1429,7 +1449,9 @@ function closeTutorial() {
   } catch {
     // The tutorial can still close when embedded storage is unavailable.
   }
-  if (roundIntro.pending) {
+  if (matchCinematic.pending) {
+    startMatchCinematicPlayback();
+  } else if (roundIntro.pending) {
     startRoundIntroPlayback();
   }
   if (tutorialOpenButton.offsetParent !== null) tutorialOpenButton.focus({ preventScroll: true });
@@ -1656,12 +1678,15 @@ function draw(now = 0) {
   drawBackground(now);
   drawTableVignette(now);
   drawFarPlayers(now);
-  drawTableProps(now);
+  if (!matchCinematic.active) drawTableProps(now);
   drawNearPlayers(now);
   drawParticles(now);
   drawImpact(now);
-  drawSceneLabels(now);
-  drawRoundIntro(now);
+  if (!matchCinematic.active) {
+    drawSceneLabels(now);
+    drawRoundIntro(now);
+  }
+  drawMatchCinematic(now);
   ctx.restore();
   drawFrameId = requestAnimationFrame(draw);
 }
@@ -2907,6 +2932,174 @@ function drawRoundIntro(now) {
   ctx.restore();
 }
 
+function drawMatchCinematic(now) {
+  if (!matchCinematic.active) return;
+  const age = now - matchCinematic.startedAt;
+  if (age >= MATCH_CINEMATIC_MS) {
+    finishMatchCinematic();
+    return;
+  }
+
+  const bounds = getHudSceneBounds();
+  const width = bounds.right - bounds.left;
+  const height = bounds.bottom - bounds.top;
+  const centerX = (bounds.left + bounds.right) / 2;
+  const centerY = (bounds.top + bounds.bottom) / 2;
+  const finalFade = clamp((MATCH_CINEMATIC_MS - age) / 720, 0, 1);
+  const openingFade = easeInOut(clamp(age / 520, 0, 1));
+  const darkness = (0.94 - openingFade * 0.27) * finalFade;
+
+  ctx.save();
+  ctx.fillStyle = `rgba(2, 2, 3, ${darkness})`;
+  ctx.fillRect(0, 0, viewport.width, viewport.height);
+
+  const sweepProgress = easeInOut(clamp((age - 280) / 1900, 0, 1));
+  const sweepX = bounds.left + width * (0.08 + sweepProgress * 0.84);
+  const sweepY = bounds.top + height * (0.34 + Math.sin(age * 0.0014) * 0.08);
+  ctx.save();
+  ctx.globalCompositeOperation = "screen";
+  ctx.globalAlpha = finalFade * (0.42 + openingFade * 0.22);
+  const sweepRadius = Math.max(width, height) * 0.48;
+  const sweep = ctx.createRadialGradient(sweepX, sweepY, 0, sweepX, sweepY, sweepRadius);
+  sweep.addColorStop(0, "rgba(255, 226, 156, 0.54)");
+  sweep.addColorStop(0.18, "rgba(243, 184, 77, 0.19)");
+  sweep.addColorStop(0.58, "rgba(112, 64, 42, 0.04)");
+  sweep.addColorStop(1, "rgba(0, 0, 0, 0)");
+  ctx.fillStyle = sweep;
+  ctx.fillRect(bounds.left, bounds.top, width, height);
+
+  game.state.players.forEach((player, index) => {
+    const point = playerEffectPoint(player.id, "chest");
+    if (!point) return;
+    const reveal = easeInOut(clamp((age - 720 - index * 180) / 480, 0, 1));
+    if (reveal <= 0) return;
+    const radius = clamp(Math.min(width, height) * 0.25, 78, 240);
+    const glow = ctx.createRadialGradient(point.x, point.y, 0, point.x, point.y, radius);
+    glow.addColorStop(0, `rgba(255, 234, 184, ${0.42 * reveal})`);
+    glow.addColorStop(0.26, `rgba(243, 184, 77, ${0.16 * reveal})`);
+    glow.addColorStop(1, "rgba(0, 0, 0, 0)");
+    ctx.fillStyle = glow;
+    ctx.fillRect(point.x - radius, point.y - radius, radius * 2, radius * 2);
+  });
+  ctx.restore();
+
+  drawCinematicWeapon(age, centerX, centerY, width, height, finalFade);
+  drawCinematicSparks(age, centerX, centerY, width, height);
+
+  const barsProgress = finalFade * easeInOut(clamp(age / 360, 0, 1));
+  const barHeight = Math.min(54, viewport.height * 0.075) * barsProgress;
+  ctx.fillStyle = "rgba(2, 2, 3, 0.98)";
+  ctx.fillRect(0, 0, viewport.width, barHeight);
+  ctx.fillRect(0, viewport.height - barHeight, viewport.width, barHeight);
+
+  const flashT = clamp((age - 4080) / 520, 0, 1);
+  if (flashT > 0 && flashT < 1) {
+    const power = Math.sin(flashT * Math.PI);
+    ctx.globalCompositeOperation = "screen";
+    const flashRadius = Math.max(width, height) * (0.18 + flashT * 0.48);
+    const flash = ctx.createRadialGradient(centerX, centerY, 0, centerX, centerY, flashRadius);
+    flash.addColorStop(0, `rgba(255, 248, 219, ${0.72 * power})`);
+    flash.addColorStop(0.22, `rgba(243, 184, 77, ${0.38 * power})`);
+    flash.addColorStop(1, "rgba(243, 184, 77, 0)");
+    ctx.fillStyle = flash;
+    ctx.fillRect(bounds.left, bounds.top, width, height);
+  }
+  ctx.restore();
+}
+
+function drawCinematicWeapon(age, centerX, centerY, sceneWidth, sceneHeight, finalFade) {
+  const image = images[game.state.weaponSkin];
+  if (!image || age < 1780) return;
+  const reveal = easeInOut(clamp((age - 1780) / 760, 0, 1));
+  const settle = easeInOut(clamp((age - 3660) / 560, 0, 1));
+  const fade = clamp((4720 - age) / 360, 0, 1) * finalFade;
+  const maxWidth = game.state.weaponSkin === "shotgun" ? 620 : 430;
+  const targetWidth = Math.min(sceneWidth * 0.58, sceneHeight * 0.72, maxWidth);
+  const weaponWidth = targetWidth * (0.58 + reveal * 0.42) * (1 - settle * 0.08);
+  const weaponHeight = image.naturalHeight * (weaponWidth / image.naturalWidth);
+  const float = prefersReducedMotion ? 0 : Math.sin(age * 0.0042) * 9 * (1 - settle);
+  const drop = settle * Math.min(46, sceneHeight * 0.08);
+  const startRotation = prefersReducedMotion ? -0.12 : -1.26;
+  const rotation = startRotation
+    + reveal * (-startRotation - 0.12)
+    + (prefersReducedMotion ? 0 : Math.sin(age * 0.0028) * 0.035 * (1 - settle));
+  const weaponY = centerY - sceneHeight * 0.03 + float + drop;
+
+  ctx.save();
+  ctx.globalAlpha = reveal * fade;
+  ctx.globalCompositeOperation = "screen";
+  const haloRadius = weaponWidth * 0.86;
+  const halo = ctx.createRadialGradient(centerX, weaponY, 0, centerX, weaponY, haloRadius);
+  halo.addColorStop(0, "rgba(255, 226, 156, 0.34)");
+  halo.addColorStop(0.42, "rgba(243, 184, 77, 0.12)");
+  halo.addColorStop(1, "rgba(0, 0, 0, 0)");
+  ctx.fillStyle = halo;
+  ctx.fillRect(centerX - haloRadius, weaponY - haloRadius, haloRadius * 2, haloRadius * 2);
+  ctx.restore();
+
+  if (age > 2320 && age < 4080) {
+    drawCinematicCharges(age, centerX, weaponY, weaponWidth, weaponHeight, fade);
+  }
+
+  ctx.save();
+  ctx.globalAlpha = reveal * fade;
+  ctx.translate(centerX, weaponY);
+  ctx.rotate(rotation);
+  ctx.shadowColor = "rgba(255, 209, 112, 0.74)";
+  ctx.shadowBlur = Math.max(18, weaponWidth * 0.08);
+  ctx.filter = "saturate(1.12) contrast(1.06) drop-shadow(0 22px 20px rgba(0, 0, 0, 0.62))";
+  ctx.drawImage(image, -weaponWidth / 2, -weaponHeight / 2, weaponWidth, weaponHeight);
+  ctx.restore();
+}
+
+function drawCinematicCharges(age, centerX, centerY, weaponWidth, weaponHeight, fade) {
+  const orbitT = clamp((age - 2320) / 1680, 0, 1);
+  const orbitRadiusX = weaponWidth * 0.66;
+  const orbitRadiusY = Math.max(weaponHeight * 0.74, weaponWidth * 0.19);
+  const chargeKinds = ["live", "blank", "live"];
+  chargeKinds.forEach((kind, index) => {
+    const image = images[kind];
+    if (!image) return;
+    const baseAngle = -Math.PI * 0.72 + index * Math.PI * 0.72;
+    const angle = baseAngle + (prefersReducedMotion ? 0 : orbitT * Math.PI * 1.45);
+    const x = centerX + Math.cos(angle) * orbitRadiusX;
+    const y = centerY + Math.sin(angle) * orbitRadiusY;
+    const chargeHeight = clamp(weaponHeight * 0.56, 46, 112);
+    const chargeWidth = image.naturalWidth * (chargeHeight / image.naturalHeight);
+    ctx.save();
+    ctx.globalAlpha = Math.sin(orbitT * Math.PI) * fade * 0.96;
+    ctx.translate(x, y);
+    ctx.rotate(angle + Math.PI / 2 + (prefersReducedMotion ? 0 : orbitT * Math.PI * 2));
+    ctx.filter = "drop-shadow(0 9px 8px rgba(0, 0, 0, 0.58)) saturate(1.1)";
+    ctx.drawImage(image, -chargeWidth / 2, -chargeHeight / 2, chargeWidth, chargeHeight);
+    ctx.restore();
+  });
+}
+
+function drawCinematicSparks(age, centerX, centerY, sceneWidth, sceneHeight) {
+  const t = clamp((age - 4070) / 720, 0, 1);
+  if (t <= 0 || t >= 1) return;
+  const power = 1 - t;
+  ctx.save();
+  ctx.globalCompositeOperation = "screen";
+  for (let index = 0; index < 18; index += 1) {
+    const angle = -Math.PI * 0.88 + (index / 17) * Math.PI * 1.76;
+    const distance = (36 + index % 4 * 13) + t * Math.min(sceneWidth, sceneHeight) * (0.24 + (index % 5) * 0.025);
+    const x = centerX + Math.cos(angle) * distance;
+    const y = centerY + Math.sin(angle) * distance * 0.68;
+    const length = 9 + (index % 4) * 4;
+    ctx.strokeStyle = index % 3 === 0
+      ? `rgba(255, 245, 223, ${power})`
+      : `rgba(243, 184, 77, ${power * 0.92})`;
+    ctx.lineWidth = 2 + (index % 2);
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x - Math.cos(angle) * length, y - Math.sin(angle) * length);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
 function drawChargeCloseup(kind, x, y, targetHeight, count, label, scaleIn) {
   const image = images[kind];
   if (!image) return;
@@ -4026,7 +4219,7 @@ function queueAnimationForLastEvent() {
 function beginRoundIntro(event, startedAt, message) {
   roundIntro.sequence += 1;
   roundIntro.active = false;
-  roundIntro.pending = !tutorialEl.hidden;
+  roundIntro.pending = !tutorialEl.hidden || matchCinematic.active || matchCinematic.pending;
   roundIntro.roundNumber = game.state.roundNumber;
   roundIntro.live = event.live ?? game.state.shellCounts.live;
   roundIntro.blank = event.blank ?? game.state.shellCounts.blank;
@@ -4035,6 +4228,86 @@ function beginRoundIntro(event, startedAt, message) {
   roundIntro.message = message;
   if (!roundIntro.pending) {
     startRoundIntroPlayback(startedAt);
+  }
+}
+
+function prepareMatchCinematic({ defer = false } = {}) {
+  matchCinematic.sequence += 1;
+  matchCinematic.active = false;
+  matchCinematic.pending = true;
+  matchCinematic.startedAt = 0;
+  particles.length = 0;
+  visualBursts.length = 0;
+  playerAnims.clear();
+  impact.event = null;
+  appShellEl.dataset.cinematic = "false";
+  if (!defer && tutorialEl.hidden) {
+    startMatchCinematicPlayback();
+  }
+}
+
+function startMatchCinematicPlayback(startedAt = performance.now()) {
+  if (!matchCinematic.pending || !tutorialEl.hidden) return;
+  const sequence = matchCinematic.sequence;
+  matchCinematic.active = true;
+  matchCinematic.pending = false;
+  matchCinematic.startedAt = startedAt;
+  roundIntro.active = false;
+  appShellEl.dataset.cinematic = "true";
+  lockInputFor(MATCH_CINEMATIC_MS);
+  playCinematicCue("open");
+  scheduleCinematicCue(sequence, 900, "seats");
+  scheduleCinematicCue(sequence, 2280, "weapon");
+  scheduleCinematicCue(sequence, 4120, "slam");
+}
+
+function scheduleCinematicCue(sequence, delay, cue) {
+  window.setTimeout(() => {
+    if (!matchCinematic.active || matchCinematic.sequence !== sequence) return;
+    playCinematicCue(cue);
+  }, delay);
+}
+
+function playCinematicCue(cue) {
+  if (!audioCtx || audioCtx.state !== "running") return;
+  if (cue === "open") {
+    playTone(54, 0.72, "sine", 0.052, 0, 34);
+    sweptNoise(0.86, 0.018, 180, 920, 0.05, "bandpass");
+  } else if (cue === "seats") {
+    playTone(92, 0.42, "triangle", 0.036, 0, 148);
+    playTone(184, 0.18, "sine", 0.018, 0.16, 236);
+  } else if (cue === "weapon") {
+    playRatchet(0);
+    playTone(132, 0.34, "triangle", 0.036, 0.12, 78);
+    sweptNoise(0.62, 0.022, 480, 2100, 0.04, "bandpass");
+  } else if (cue === "slam") {
+    playTableThump(0, 0.13);
+    noiseBurst(0.18, 0.11, 540, 0.006, "bandpass", 0.72);
+    playSparkleRun([523, 784, 1047], 0.055, 0.018, 0.06);
+    triggerHaptic({ type: "item" });
+  }
+}
+
+function finishMatchCinematic() {
+  if (!matchCinematic.active && !matchCinematic.pending) return;
+  matchCinematic.sequence += 1;
+  matchCinematic.active = false;
+  matchCinematic.pending = false;
+  appShellEl.dataset.cinematic = "false";
+  if (roundIntro.pending) {
+    startRoundIntroPlayback();
+    return;
+  }
+  releaseInputLock();
+}
+
+function releaseInputLock() {
+  actionLockedUntil = 0;
+  clearTimeout(actionUnlockTimer);
+  const active = game.activePlayer;
+  if (active?.isHuman && !game.state.winnerId) {
+    renderItems(active);
+    renderTargets(active);
   }
 }
 
