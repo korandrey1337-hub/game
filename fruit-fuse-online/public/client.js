@@ -1,4 +1,5 @@
 import { CoreBelowStats } from "./stats.js";
+import { createActionRenderer } from "./action-panel.js";
 
 const canvas = document.querySelector("#game");
 const ctx = canvas.getContext("2d");
@@ -51,6 +52,7 @@ const roleButtons = document.querySelector("#roleButtons");
 const objectiveCard = document.querySelector("#tutorialCard");
 const intelPanel = document.querySelector("#intelPanel");
 const actionPanel = document.querySelector("#actionPanel");
+const setActionMarkup = createActionRenderer(actionPanel);
 const proximityHint = document.querySelector("#proximityHint");
 const crewCount = document.querySelector("#crewCount");
 const log = document.querySelector("#log");
@@ -136,8 +138,9 @@ const SYMBOL_LABELS = {
   arrow: "СТРЕЛА"
 };
 
-const TUTORIAL_COMPLETE_KEY = "core-below:tutorial-complete:v1";
+const TUTORIAL_COMPLETE_KEY = "core-below:tutorial-complete:v2";
 const TUTORIAL_ROLE_ORDER = ["lookout", "scribe", "operator"];
+const COOP_PHASES = ["scan", "route", "report", "terminal", "signal", "prepare", "sync", "action"];
 
 const input = { up: false, down: false, left: false, right: false };
 const releaseTimers = { up: null, down: null, left: null, right: null };
@@ -389,9 +392,10 @@ actionPanel.addEventListener("click", event => {
   const button = event.target.closest("[data-action]");
   if (!button || !actionPanel.contains(button)) return;
   const action = button.dataset.action;
-  if (["scan", "route"].includes(action)) send({ type: "interact", action });
-  if (action === "signal") send({ type: "interact", action, choice: button.dataset.choice });
-  if (action === "resolve") send({ type: "interact", action, choice: button.dataset.choice });
+  const sent = send({ type: "interact", action, choice: button.dataset.choice,
+    station: button.dataset.station, code: button.dataset.code,
+    mode: button.dataset.mode === undefined ? undefined : Number(button.dataset.mode) });
+  if (sent && ["report", "terminal", "signal", "cue"].includes(action)) playerStats.recordSignal();
   audio.play("tool");
   canvas.focus();
 });
@@ -805,7 +809,7 @@ function renderUi() {
   gameShell.classList.toggle("is-tutorial", Boolean(state.tutorial));
   gameShell.dataset.phase = state.phase;
   document.querySelector("#compactTutorialStep").textContent = state.tutorial
-    ? `${Math.max(0, TUTORIAL_ROLE_ORDER.indexOf(self?.role)) + 1}/3`
+    ? `${Math.max(0, COOP_PHASES.indexOf(view?.phase)) + 1}/${COOP_PHASES.length}`
     : `${Math.min((view?.progress?.incidentIndex || 0) + 1, view?.progress?.totalIncidents || 4)}/${view?.progress?.totalIncidents || 4}`;
 
   roomCode.textContent = state.tutorial ? "УЧЕБА" : state.code;
@@ -835,8 +839,8 @@ function renderUi() {
     if (state.tutorial && won) {
       endKicker.textContent = "ОБУЧЕНИЕ ЗАВЕРШЕНО";
       endTitle.textContent = "ВЫ ГОТОВЫ К СМЕНЕ";
-      endReason.textContent = "Вы нашли аварию, передали символ и устранили её оператором. Онлайн-режим разблокирован.";
-      endStats.textContent = "3 РОЛИ · 1 АВАРИЯ · ОНЛАЙН ОТКРЫТ";
+      endReason.textContent = "Вы поставили диагноз, объединили две подсказки и синхронно запустили ремонт. Онлайн-режим разблокирован.";
+      endStats.textContent = "3 РОЛИ · ДИАГНОЗ · ПРАВИЛО · СИНХРОНИЗАЦИЯ";
     } else {
       endKicker.textContent = won ? "СМЕНА ЗАВЕРШЕНА" : "АВАРИЙНЫЙ ПРОТОКОЛ";
       endTitle.textContent = won ? "КОМАНДА СПАСЛА СМЕНУ" : "РЕАКТОР УНИЧТОЖЕН";
@@ -894,7 +898,7 @@ function renderUi() {
   const mutedRole = self?.role === "scribe";
   chatForm.hidden = mutedRole;
   quickPings.hidden = true;
-  routeControls.hidden = self?.role !== "lookout" || !view?.team?.routeReady;
+  routeControls.hidden = self?.role !== "lookout" || !view?.team?.routeReady || view.team.clueReported === null || view.team.operatorArmed;
   symbolRelay.hidden = true;
   touchControls.hidden = self?.role === "lookout";
   chatInput.disabled = mutedRole;
@@ -954,9 +958,10 @@ function updateAudioButton(role = state?.players.find(player => player.id === se
 function renderTutorialProgress(self, view) {
   const currentIndex = Math.max(0, TUTORIAL_ROLE_ORDER.indexOf(self?.role));
 
-  tutorialModuleLabel.textContent = "УЧЕБНАЯ АВАРИЯ · 3 ПРОСТЫХ ШАГА";
+  tutorialModuleLabel.textContent = "УЧЕБНАЯ АВАРИЯ · ОДНО ДЕЙСТВИЕ ЗА РАЗ";
   tutorialStepElements.forEach((element, index) => {
-    element.classList.toggle("is-complete", index < currentIndex);
+    const done = [view.team.clueReported !== null, view.team.signalReady, view.team.operatorArmed][index];
+    element.classList.toggle("is-complete", done);
     element.classList.toggle("is-current", index === currentIndex);
     element.classList.toggle("is-locked", index > currentIndex);
   });
@@ -982,30 +987,43 @@ function renderObjective(self, nearby) {
     text = "Ничего страшного: помеха исчезнет через несколько секунд. Продолжайте действовать вместе.";
   } else if (self?.role === "lookout") {
     text = !view.team.scanned
-      ? "Нажмите «Сканировать»: только вы можете найти место аварии."
+      ? "Сканируйте узлы: сравните их показания с нормальным диапазоном."
       : !view.team.routeReady
-        ? `Цель найдена: ${activeName}. Нажмите «Маршрут готов» и ведите оператора стрелками.`
-        : `Маршрут к станции ${activeName} передан. Следите за красным оператором и подсказывайте направление.`;
+        ? "Выберите узел с показанием вне нормы. Исправные узлы не отмечайте."
+        : view.team.clueReported === null
+          ? "Найдите рисунок сигнала в легенде и передайте соответствующий код."
+          : !view.team.operatorArmed
+            ? `Ведите оператора к станции ${activeName} стрелками. Затем понадобится ваша команда на запуск.`
+            : view.team.cueRemainingMs > 0
+              ? "Команда дана! У оператора короткое окно для запуска ремонта."
+              : "Дождитесь, когда стрелка попадёт в зелёную зону, и дайте команду «Сейчас».";
   } else if (self?.role === "scribe") {
     text = !view.team.routeReady
-      ? "Ждите скан наблюдателя. После него здесь появится один нужный символ."
+      ? "Ждите диагноза наблюдателя. Затем появятся правила ремонта."
+      : view.team.clueReported === null || view.team.modeReported === null
+        ? "Для решения нужны код наблюдателя и режим терминала от оператора. Изучите три правила."
       : !view.team.signalReady
-        ? "Выберите показанный символ. Это единственная подсказка, которую увидит оператор."
-        : "Символ передан. Следите за действиями оператора.";
+        ? "Код: строка. Режим: столбец. Выберите инструмент."
+        : "Решение передано. Наблюдатель и оператор должны синхронно закончить ремонт.";
   } else if (self?.role === "operator") {
     text = !view.team.routeReady
-      ? "Карта почти не видна. Ждите, пока наблюдатель найдёт цель и направит вас."
+      ? "Ждите диагноза. Наблюдатель найдёт цель и направит вас стрелками."
+      : view.team.modeReported === null
+        ? nearby?.id === activeModule
+          ? "Прочитайте режим терминала и передайте + или − архивариусу."
+          : `Найдите станцию ${activeName} по командам наблюдателя и прочитайте её терминал.`
       : !view.team.signalReady
-        ? `Двигайтесь к станции ${activeName}; архивариус скоро передаст нужный символ.`
-        : nearby?.id === activeModule
-          ? "Вы у нужной станции. Нажмите действие с символом, который передал архивариус."
-          : `Следуйте к станции ${activeName}. Смотрите на сигналы команды и маяк цели.`;
+        ? "Режим передан. Архивариус объединяет две подсказки и выбирает инструмент."
+        : !view.team.operatorArmed
+          ? "Подключите инструмент, который выбрал архивариус. Затем дождитесь команды наблюдателя."
+          : view.team.cueRemainingMs > 0 ? "СЕЙЧАС! Нажмите «Запустить ремонт», пока окно не закрылось."
+            : "Инструмент готов. Не запускайте ремонт, пока наблюдатель не даст команду «Сейчас».";
   } else {
     text = "Следите за тремя этапами командной работы.";
   }
 
   if (state.tutorial) {
-    const phaseLabel = ({ scan: "СКАН", route: "МАРШРУТ", signal: "СИМВОЛ", action: "ДЕЙСТВИЕ" })[view.phase] || "ШАГ";
+    const phaseLabel = ({ scan: "СКАН", route: "ДИАГНОЗ", report: "КОД", terminal: "РЕЖИМ", signal: "ПРАВИЛО", prepare: "ИНСТРУМЕНТ", sync: "БЕЗОПАСНЫЙ МОМЕНТ", action: "ЗАПУСК" })[view.phase] || "ШАГ";
     kicker = `ОБУЧЕНИЕ · ${ROLE_LABELS[self?.role]} · ${phaseLabel}`;
   }
 
@@ -1030,13 +1048,13 @@ function renderConsole(self, nearby) {
     consoleTitle.textContent = nearby.name;
     keyHelp.textContent = "ВЫБОР 1–3";
   } else if (self.role === "scribe") {
-    consoleKicker.textContent = "СЕКРЕТНЫЙ КОД";
-    consoleTitle.textContent = "ВЫБЕРИТЕ СИМВОЛ";
-    keyHelp.textContent = "1 НАЖАТИЕ";
+    consoleKicker.textContent = "ДВЕ ПОДСКАЗКИ";
+    consoleTitle.textContent = "ПРАВИЛА РЕМОНТА";
+    keyHelp.textContent = "КОД + РЕЖИМ";
   } else {
-    consoleKicker.textContent = "ПОЛНАЯ КАРТА";
-    consoleTitle.textContent = "СКАНЕР АВАРИЙ";
-    keyHelp.textContent = "2 КОРОТКИХ ШАГА";
+    consoleKicker.textContent = "ДИАГНОСТИКА И СИНХРОНИЗАЦИЯ";
+    consoleTitle.textContent = view.team.operatorArmed ? "КОНТРОЛЬ ДАВЛЕНИЯ" : "СКАНЕР УЗЛОВ";
+    keyHelp.textContent = "СРАВНИТЕ ПОКАЗАНИЯ";
   }
 
   renderIntel(self, nearby);
@@ -1047,22 +1065,45 @@ function renderIntel(self, nearby) {
   const view = state.puzzleView;
 
   if (view.role === "lookout") {
-    intelPanel.innerHTML = view.scanner
-      ? `<div class="big-readout"><span>ЦЕЛЬ НА КАРТЕ</span><strong>${escapeHtml(currentModules()[view.scanner.station]?.name || "СТАНЦИЯ")}</strong><small>${escapeHtml(view.scanner.alert)}</small></div>`
-      : '<div class="big-readout waiting"><span>СИГНАЛ НЕ ОПОЗНАН</span><strong>?</strong><small>Запустите сканер</small></div>';
+    if (view.team.operatorArmed) {
+      const pressure = view.pressure ?? 0;
+      intelPanel.innerHTML = `<div class="pressure-readout"><span>БЕЗОПАСНАЯ ЗОНА: 25–75</span>
+        <strong>${pressure}</strong><div class="pressure-track"><span class="pressure-safe"></span><i style="left:${pressure}%"></i></div>
+        <small>${view.team.cueRemainingMs > 0 ? "КОМАНДА ДАНА · ЖДЁМ ОПЕРАТОРА" : "СЛЕДИТЕ ЗА СТРЕЛКОЙ"}</small></div>`;
+    } else if (!view.scanner) {
+      intelPanel.innerHTML = '<div class="big-readout waiting"><span>ПОКАЗАНИЯ НЕ ПОЛУЧЕНЫ</span><strong>?</strong><small>Запустите сканер</small></div>';
+    } else if (!view.team.routeReady) {
+      intelPanel.innerHTML = `<p class="diagnostic-normal">НОРМА: ${view.scanner.normalMin}–${view.scanner.normalMax}</p>`;
+    } else if (view.team.clueReported === null) {
+      intelPanel.innerHTML = `<div class="diagnostic-pattern"><span>СИГНАЛ УЗЛА</span><strong>${escapeHtml(view.scanner.pattern)}</strong></div>
+        <div class="diagnostic-legend">${view.scanner.legend.map(code => `<span>${escapeHtml(code.pattern)} → <b>${escapeHtml(code.symbol)}</b></span>`).join("")}</div>`;
+    } else {
+      intelPanel.innerHTML = `<p class="route-target">ЦЕЛЬ: ${escapeHtml(currentModules()[view.progress.activeModule]?.name || "УЗЕЛ")}</p>`;
+    }
     return;
   }
 
   if (view.role === "scribe") {
+    const code = view.manual?.rules.find(rule => rule.id === view.team.clueReported);
+    const choice = id => view.manual.choices.find(item => item.id === id);
     intelPanel.innerHTML = view.manual
-      ? `<div class="big-readout symbol-readout"><span>ПЕРЕДАЙТЕ ЭТОТ ЗНАК</span><strong>${escapeHtml(view.manual.solution.symbol)}</strong><small>${escapeHtml(view.manual.solution.label)}</small></div>`
-      : '<div class="big-readout waiting"><span>ЖДЁМ МАРШРУТ</span><strong>…</strong><small>Наблюдатель ещё сканирует</small></div>';
+      ? `<div class="received-clues"><span>КОД: <b>${escapeHtml(code?.symbol || "?")}</b></span><span>РЕЖИМ: <b>${view.team.modeReported === null ? "?" : view.team.modeReported ? "−" : "+"}</b></span></div>
+        <table class="repair-rules"><thead><tr><th>КОД</th><th>+</th><th>−</th></tr></thead><tbody>${view.manual.rules.map(rule => `<tr><th>${escapeHtml(rule.symbol)}</th>${[rule.normal, rule.inverted].map(id => `<td title="${escapeHtml(choice(id).label)}">${escapeHtml(choice(id).symbol)}</td>`).join("")}</tr>`).join("")}</tbody></table>`
+      : '<div class="big-readout waiting"><span>ЖДЁМ ДИАГНОЗ</span><strong>…</strong><small>Наблюдатель сравнивает показания</small></div>';
     return;
   }
 
+  if (view.team.modeReported === null && view.terminal) {
+    intelPanel.innerHTML = `<div class="big-readout"><span>РЕЖИМ ТЕРМИНАЛА</span><strong>${view.terminal.mode ? "−" : "+"}</strong><small>Передайте режим архивариусу</small></div>`;
+    return;
+  }
+  if (view.team.operatorArmed) {
+    intelPanel.innerHTML = `<div class="big-readout ${view.team.cueRemainingMs > 0 ? "sync-live" : "waiting"}"><span>КОМАНДА НАБЛЮДАТЕЛЯ</span><strong>${view.team.cueRemainingMs > 0 ? "СЕЙЧАС!" : "ЖДИТЕ"}</strong><small>${view.team.cueRemainingMs > 0 ? `${(view.team.cueRemainingMs / 1000).toFixed(1)} с` : "Давление видит только наблюдатель"}</small></div>`;
+    return;
+  }
   const signal = view.choices?.find(choice => choice.id === view.team.signalId);
   intelPanel.innerHTML = signal
-    ? `<div class="big-readout symbol-readout"><span>СИГНАЛ АРХИВАРИУСА</span><strong>${escapeHtml(signal.symbol)}</strong><small>Найдите такой же знак ниже</small></div>`
+    ? `<div class="big-readout symbol-readout"><span>ИНСТРУМЕНТ АРХИВАРИУСА</span><strong>${escapeHtml(signal.symbol)}</strong><small>Подключите инструмент для ремонта</small></div>`
     : '<div class="big-readout waiting"><span>ЖДЁМ СИМВОЛ</span><strong>…</strong><small>Не выбирайте наугад</small></div>';
 }
 
@@ -1074,10 +1115,14 @@ function renderActions(self, nearby) {
   const view = state.puzzleView;
 
   if (self.role === "lookout") {
-    if (!view.team.scanned) {
-      setActionMarkup('<button class="primary wide-action" data-action="scan"><b>◉</b><span>СКАНИРОВАТЬ АВАРИЮ</span></button>');
+    if (view.team.operatorArmed) {
+      setActionMarkup(`<button class="primary wide-action" data-action="cue" ${view.team.cueRemainingMs > 0 ? "disabled" : ""}><b>!</b><span>СЕЙЧАС · ДАТЬ КОМАНДУ</span></button>`);
+    } else if (!view.team.scanned) {
+      setActionMarkup('<button class="primary wide-action" data-action="scan"><b>◉</b><span>СКАНИРОВАТЬ УЗЛЫ</span></button>');
     } else if (!view.team.routeReady) {
-      setActionMarkup('<button class="primary wide-action" data-action="route"><b>➜</b><span>МАРШРУТ ГОТОВ</span></button>');
+      setActionMarkup(view.scanner.readings.map(reading => `<button class="diagnostic-node" data-action="route" data-station="${reading.station}"><strong>${reading.value}</strong><span>${escapeHtml(currentModules()[reading.station].name)}</span></button>`).join(""));
+    } else if (view.team.clueReported === null) {
+      setActionMarkup(view.scanner.legend.map(code => `<button class="symbol-choice" data-action="report" data-code="${code.id}"><b>${escapeHtml(code.symbol)}</b><span>КОД</span></button>`).join(""));
     } else {
       showActionDone("МАРШРУТ ПЕРЕДАН · ВЕДИТЕ ОПЕРАТОРА СТРЕЛКАМИ");
     }
@@ -1091,6 +1136,10 @@ function renderActions(self, nearby) {
     }
     if (view.team.signalReady) {
       showActionDone("СИМВОЛ ПЕРЕДАН ОПЕРАТОРУ");
+      return;
+    }
+    if (view.team.clueReported === null || view.team.modeReported === null) {
+      showActionDone("ЖДЁМ КОД И РЕЖИМ ОТ КОМАНДЫ");
       return;
     }
     setActionMarkup(view.manual.choices.map((choice, index) => `
@@ -1110,22 +1159,27 @@ function renderActions(self, nearby) {
     return;
   }
 
-  if (!view.team.routeReady || !view.team.signalReady) {
-    showActionDone("ЖДЁМ МАРШРУТ И СИМВОЛ КОМАНДЫ");
+  if (view.team.modeReported === null && view.terminal) {
+    setActionMarkup(`<div class="terminal-modes">${[0, 1].map(mode => `<button class="mode-choice" data-action="terminal" data-mode="${mode}"><b>${mode ? "−" : "+"}</b><span>ПЕРЕДАТЬ РЕЖИМ</span></button>`).join("")}</div>`);
+    return;
+  }
+  if (!view.team.signalReady) {
+    showActionDone("ЖДЁМ РЕШЕНИЕ АРХИВАРИУСА");
+    return;
+  }
+
+  if (view.team.operatorArmed) {
+    setActionMarkup(`<button class="primary wide-action" data-action="resolve" ${view.team.cueRemainingMs > 0 ? "" : "disabled"}><b>◎</b><span>ЗАПУСТИТЬ РЕМОНТ</span></button>`);
     return;
   }
 
   setActionMarkup(view.choices.map((choice, index) => `
-    <button class="symbol-choice" data-action="resolve" data-choice="${escapeHtml(choice.id)}"><kbd>${index + 1}</kbd><b>${escapeHtml(choice.symbol)}</b><span>${escapeHtml(choice.label)}</span></button>
+    <button class="symbol-choice" data-action="prepare" data-choice="${escapeHtml(choice.id)}"><kbd>${index + 1}</kbd><b>${escapeHtml(choice.symbol)}</b><span>${escapeHtml(choice.label)}</span></button>
   `).join(""));
 }
 
 function showActionDone(text) {
   setActionMarkup(`<p>${text}</p>`);
-}
-
-function setActionMarkup(markup) {
-  if (actionPanel.innerHTML !== markup) actionPanel.innerHTML = markup;
 }
 
 function renderProximity(self, nearby) {
@@ -1136,11 +1190,11 @@ function renderProximity(self, nearby) {
   proximityHint.hidden = false;
   if (self.role !== "operator") {
     proximityHint.textContent = self.role === "scribe"
-      ? "УВИДЬТЕ ЗНАК · НАЖМИТЕ ТАКОЙ ЖЕ"
-      : "СКАНИРУЙТЕ · ОТМЕТЬТЕ МАРШРУТ · ВЕДИТЕ СТРЕЛКАМИ";
+      ? "ОБЪЕДИНИТЕ КОД И РЕЖИМ · ПЕРЕДАЙТЕ ИНСТРУМЕНТ"
+      : "ДИАГНОЗ · КОД · НАПРАВЛЕНИЕ · БЕЗОПАСНЫЙ МОМЕНТ";
   } else if (nearby) {
     proximityHint.textContent = nearby.id === state.puzzleView?.progress?.activeModule
-      ? `${nearby.name} · СОВПАДЕНИЕ СИМВОЛА: 1–3`
+      ? `${nearby.name} · ТЕРМИНАЛ · ИНСТРУМЕНТ · ЗАПУСК`
       : `${nearby.name} · НЕ ТА СТАНЦИЯ`;
   } else {
     proximityHint.textContent = "WASD / СТРЕЛКИ · СЛЕДУЙТЕ К МАЯКУ КОМАНДЫ";
@@ -1165,13 +1219,7 @@ function renderStory(self, nearby) {
     text = "Смена провалена. Запустите новую попытку.";
   } else if (state.tutorial && state.puzzleView) {
     speaker = "КУРАТОР";
-    text = self?.role === "lookout"
-      ? "Нажмите сканер, затем подтвердите маршрут. После этого роль сменится сама."
-      : self?.role === "scribe"
-        ? "Большой знак справа — ответ. Нажмите такой же знак среди трёх кнопок."
-        : nearby
-          ? "Вы у станции. Нажмите действие с тем же знаком."
-          : "Виден только круг фонаря. Идите по мигающей линии к станции.";
+    text = objectiveCard.querySelector("p")?.textContent || "Сравните показания, объедините подсказки и согласуйте запуск ремонта.";
   } else if (state.logs.length) {
     const entry = state.logs.at(-1);
     speaker = entry.tone === "danger" ? "ТРЕВОГА" : entry.tone === "chat" ? "ЭКИПАЖ" : "СИСТЕМА";
@@ -1298,18 +1346,21 @@ function drawTutorialRoute(now) {
   const activeId = state.puzzleView?.progress?.activeModule;
   const target = currentModules()[activeId];
   if (!target) return;
+  if (!state.tutorial && Math.hypot(self.x - target.x, self.y - target.y) > 90) return;
 
   const pulse = Math.floor(now / 240) % 2;
   ctx.save();
   ctx.globalAlpha = 0.8;
   ctx.strokeStyle = pulse ? "#ffd85a" : "#fff8dc";
   ctx.lineWidth = 2;
-  ctx.setLineDash([7, 5]);
-  ctx.beginPath();
-  ctx.moveTo(Math.round(self.x), Math.round(self.y - 8));
-  ctx.lineTo(target.x, target.y);
-  ctx.stroke();
-  ctx.setLineDash([]);
+  if (state.tutorial) {
+    ctx.setLineDash([7, 5]);
+    ctx.beginPath();
+    ctx.moveTo(Math.round(self.x), Math.round(self.y - 8));
+    ctx.lineTo(target.x, target.y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
   ctx.strokeRect(target.x - 23 - pulse * 3, target.y - 23 - pulse * 3, 46 + pulse * 6, 46 + pulse * 6);
   ctx.fillStyle = "#ffd85a";
   ctx.fillRect(target.x - 3, target.y - 3, 6, 6);

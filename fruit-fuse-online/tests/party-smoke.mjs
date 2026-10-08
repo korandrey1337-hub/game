@@ -18,21 +18,43 @@ async function testTutorial() {
   assert.equal(client.latest().puzzleView.phase, "scan");
 
   client.send({ type: "interact", action: "scan" });
-  await client.waitFor(room => room.puzzleView?.phase === "route" && room.puzzleView.scanner?.station);
-  client.send({ type: "interact", action: "route" });
-  await client.waitFor(room => room.puzzleView?.role === "scribe" && room.puzzleView.manual?.solution);
+  await client.waitFor(room => room.puzzleView?.scanner?.readings);
+  const scanner = client.latest().puzzleView.scanner;
+  const station = faultStation(scanner);
+  const healthy = scanner.readings.find(reading => reading.station !== station);
+  client.send({ type: "interact", action: "route", station: healthy.station });
+  await client.waitFor(room => room.mistakes === 1);
+  assert.equal(client.latest().puzzleView.progress.activeModule, null);
+  client.send({ type: "interact", action: "route", station });
+  await client.waitFor(room => room.puzzleView.phase === "report");
+  const clue = diagnosticCode(client.latest().puzzleView.scanner);
+  const wrongCode = client.latest().puzzleView.scanner.legend.find(code => code.id !== clue).id;
+  client.send({ type: "interact", action: "report", code: wrongCode });
+  await client.waitFor(room => room.mistakes === 2);
+  assert.equal(client.latest().puzzleView.team.clueReported, null);
+  client.send({ type: "interact", action: "report", code: clue });
+  await client.waitFor(room => room.puzzleView.role === "operator");
+  await moveTo(client, station);
+  await client.waitFor(room => room.puzzleView.terminal);
+  client.send({ type: "interact", action: "terminal", mode: client.latest().puzzleView.terminal.mode });
+  await client.waitFor(room => room.puzzleView.role === "scribe" && room.puzzleView.manual?.rules);
 
   const manual = client.latest().puzzleView.manual;
-  const wrong = manual.choices.find(choice => choice.id !== manual.solution.id);
+  assert.equal(manual.solution, undefined);
+  const solution = inferTool(client.latest().puzzleView);
+  const wrong = manual.choices.find(choice => choice.id !== solution);
   client.send({ type: "interact", action: "signal", choice: wrong.id });
-  await client.waitFor(room => room.mistakes === 1 && room.puzzleView.chaos);
+  await client.waitFor(room => room.mistakes === 3 && room.puzzleView.chaos);
   assert.equal(client.latest().phase, "playing");
 
-  client.send({ type: "interact", action: "signal", choice: manual.solution.id });
+  client.send({ type: "interact", action: "signal", choice: solution });
   await client.waitFor(room => room.puzzleView?.role === "operator" && room.puzzleView.team.signalReady);
-  const solution = client.latest().puzzleView.training.solution;
-  await moveTo(client, client.latest().puzzleView.progress.activeModule);
-  client.send({ type: "interact", action: "resolve", choice: solution.id });
+  assert.equal(client.latest().puzzleView.training, undefined);
+  client.send({ type: "interact", action: "prepare", choice: solution });
+  await client.waitFor(room => room.puzzleView.role === "lookout" && room.puzzleView.team.operatorArmed);
+  client.send({ type: "interact", action: "cue" });
+  await client.waitFor(room => room.puzzleView.role === "operator" && room.puzzleView.team.cueRemainingMs > 0);
+  client.send({ type: "interact", action: "resolve" });
   await client.waitFor(room => room.phase === "won");
   assert.equal(client.latest().outcomeReason, "crew_saved");
   assert.equal(client.latest().puzzleView.progress.resolvedCount, 1);
@@ -51,6 +73,9 @@ async function testFullShift() {
   assert.ok(operator.latest().puzzleView.choices);
   assert.equal(lookout.latest().puzzleView.scanner, null);
   assert.equal(scribe.latest().puzzleView.manual, null);
+  assert.equal(operator.latest().puzzleView.progress.activeModule, null);
+  assert.deepEqual(operator.latest().puzzleView.progress.moduleOrder, []);
+  assert.equal(operator.latest().puzzleView.terminal, null);
   assert.equal(operator.latest().maxMistakes, 6);
   assert.equal(operator.latest().scenario.durationSec, 240);
 
@@ -70,22 +95,50 @@ async function testFullShift() {
   for (let index = 0; index < 4; index += 1) {
     lookout.send({ type: "interact", action: "scan" });
     await lookout.waitFor(room => room.puzzleView?.phase === "route");
-    lookout.send({ type: "interact", action: "route" });
-    await scribe.waitFor(room => room.puzzleView?.manual?.solution && room.puzzleView.progress.resolvedCount === index);
+    const station = faultStation(lookout.latest().puzzleView.scanner);
+    lookout.send({ type: "interact", action: "route", station });
+    await lookout.waitFor(room => room.puzzleView.phase === "report");
+    lookout.send({ type: "interact", action: "report", code: diagnosticCode(lookout.latest().puzzleView.scanner) });
+    await operator.waitFor(room => room.puzzleView?.team.routeReady && room.puzzleView.progress.resolvedCount === index);
+    await moveTo(operator, station);
+    await operator.waitFor(room => room.puzzleView.terminal);
+    operator.send({ type: "interact", action: "terminal", mode: operator.latest().puzzleView.terminal.mode });
+    await scribe.waitFor(room => room.puzzleView?.manual?.rules && room.puzzleView.team.clueReported !== null && room.puzzleView.team.modeReported !== null && room.puzzleView.progress.resolvedCount === index);
 
-    const solution = scribe.latest().puzzleView.manual.solution;
-    scribe.send({ type: "interact", action: "signal", choice: solution.id });
+    assert.equal(scribe.latest().puzzleView.manual.solution, undefined);
+    assert.equal(scribe.latest().puzzleView.terminal, undefined);
+    assert.equal(scribe.latest().puzzleView.pressure, undefined);
+    const solution = inferTool(scribe.latest().puzzleView);
+    scribe.send({ type: "interact", action: "signal", choice: solution });
     await operator.waitFor(room => room.puzzleView?.team.signalReady && room.puzzleView.progress.resolvedCount === index);
 
-    const station = operator.latest().puzzleView.progress.activeModule;
-    await moveTo(operator, station);
-    operator.send({ type: "interact", action: "resolve", choice: solution.id });
+    operator.send({ type: "interact", action: "prepare", choice: solution });
+    await operator.waitFor(room => room.puzzleView.team.operatorArmed);
+    if (index === 0) {
+      operator.send({ type: "interact", action: "resolve" });
+      await operator.waitFor(room => room.mistakes === 1);
+      await lookout.waitFor(room => room.puzzleView.pressure < 10 || room.puzzleView.pressure > 90);
+      lookout.send({ type: "interact", action: "cue" });
+      await lookout.waitFor(room => room.mistakes === 2);
+    }
+    await lookout.waitFor(room => room.puzzleView.team.operatorArmed && room.puzzleView.pressure >= 35 && room.puzzleView.pressure <= 65);
+    lookout.send({ type: "interact", action: "cue" });
+    await operator.waitFor(room => room.puzzleView.team.cueRemainingMs > 0);
+    if (index === 0) {
+      await operator.waitFor(room => room.puzzleView.team.cueRemainingMs === 0, 6000);
+      assert.equal(operator.latest().puzzleView.progress.resolvedCount, 0);
+      await lookout.waitFor(room => room.puzzleView.pressure >= 35 && room.puzzleView.pressure <= 65);
+      lookout.send({ type: "interact", action: "cue" });
+      await operator.waitFor(room => room.puzzleView.team.cueRemainingMs > 0);
+    }
+    assert.equal(operator.latest().puzzleView.pressure, undefined);
+    operator.send({ type: "interact", action: "resolve" });
     await operator.waitFor(room => room.phase === "won" || room.puzzleView.progress.resolvedCount === index + 1, 6000);
   }
 
   assert.equal(operator.latest().phase, "won");
   assert.equal(operator.latest().puzzleView.progress.resolvedCount, 4);
-  assert.equal(operator.latest().mistakes, 0);
+  assert.equal(operator.latest().mistakes, 2);
   operator.close();
   lookout.close();
   scribe.close();
@@ -97,12 +150,11 @@ async function testFailure() {
   await scribe.waitFor(room => room.phase === "playing");
   lookout.send({ type: "interact", action: "scan" });
   await lookout.waitFor(room => room.puzzleView?.phase === "route");
-  lookout.send({ type: "interact", action: "route" });
-  await scribe.waitFor(room => room.puzzleView?.manual?.solution);
-  const manual = scribe.latest().puzzleView.manual;
-  const wrong = manual.choices.find(choice => choice.id !== manual.solution.id);
+  const scanner = lookout.latest().puzzleView.scanner;
+  const station = faultStation(scanner);
+  const wrong = scanner.readings.find(reading => reading.station !== station).station;
   for (let count = 1; count <= 6; count += 1) {
-    scribe.send({ type: "interact", action: "signal", choice: wrong.id });
+    lookout.send({ type: "interact", action: "route", station: wrong });
     await scribe.waitFor(room => room.mistakes === count || room.phase === "lost");
   }
   await operator.waitFor(room => room.phase === "lost");
@@ -111,6 +163,19 @@ async function testFailure() {
   operator.close();
   lookout.close();
   scribe.close();
+}
+
+function faultStation(scanner) {
+  return scanner.readings.find(reading => reading.value < scanner.normalMin || reading.value > scanner.normalMax).station;
+}
+
+function diagnosticCode(scanner) {
+  return scanner.legend.find(code => code.pattern === scanner.pattern).id;
+}
+
+function inferTool(view) {
+  const row = view.manual.rules.find(rule => rule.id === view.team.clueReported);
+  return row[view.team.modeReported ? "inverted" : "normal"];
 }
 
 async function createCrew(prefix) {

@@ -1083,3 +1083,41 @@ body.is-menu { height: auto; min-height: 0; overflow-y: auto; }
 .is-compact[data-console-open="false"] .objective-card { left: 156px; width: min(340px, calc(100% - 168px)); }
 .is-compact .end-overlay { position: fixed; z-index: 30; width: min(430px, calc(100vw - 24px)); max-height: calc(var(--visible-height, 100dvh) - 16px); overflow: auto; }
 .is-compact .lobby { max-height: calc(var(--visible-height, 100dvh) - 16px); overflow: auto; }
+
+.diagnostic-normal { color: var(--cyan); font-size: 13px; font-weight: 900; }
+.diagnostic-node { min-width: 0; display: grid; align-content: center; gap: 5px; text-align: center !important; }
+.diagnostic-node strong { color: var(--ink); font-size: 24px; }
+.diagnostic-node span { overflow-wrap: anywhere; font-size: 10px; }
+.diagnostic-pattern { display: grid; gap: 5px; text-align: center; }
+.diagnostic-pattern span { color: var(--muted); font-size: 10px; }
+.diagnostic-pattern strong { color: var(--cyan); font-size: 28px; }
+.diagnostic-legend { display: flex; justify-content: space-around; gap: 5px; margin-top: 8px; font-size: 13px; }
+.received-clues { display: flex; justify-content: space-between; gap: 5px; margin-bottom: 8px; color: var(--cyan); font-size: 12px; }
+.received-clues b { color: var(--yellow); }
+.repair-rules { width: 100%; border-collapse: collapse; table-layout: fixed; text-align: center; }
+.repair-rules th, .repair-rules td { height: 31px; border: 1px solid #4e5857; padding: 3px; font-size: 19px; }
+.repair-rules thead th { height: 23px; color: var(--muted); font-size: 12px; }
+.repair-rules tbody th { color: var(--cyan); }
+.terminal-modes { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; }
+.mode-choice { display: grid; place-items: center; gap: 3px; text-align: center !important; }
+.mode-choice b { color: var(--cyan); font-size: 24px; }
+.mode-choice span { font-size: 9px; }
+.pressure-readout { display: grid; justify-items: center; gap: 8px; }
+.pressure-readout > span, .pressure-readout small { font-size: 10px; color: var(--muted); text-align: center; }
+.pressure-readout strong { font-size: 24px; color: var(--cyan); }
+.pressure-track { position: relative; width: 100%; height: 22px; border: 1px solid #697372; background: #201416; }
+.pressure-safe { position: absolute; inset: 0 25%; background: #215d39; }
+.pressure-track i { position: absolute; top: -3px; width: 3px; height: 26px; transform: translateX(-50%); background: var(--ink); }
+.big-readout.sync-live { border-color: var(--green); }
+.big-readout.sync-live > strong { color: var(--green); }
+.is-compact .diagnostic-node strong { font-size: 19px; }
+.is-compact .diagnostic-node span { font-size: 9px; }
+.is-compact .diagnostic-node { padding: 4px 2px; }
+.is-compact .received-clues { font-size: 10px; margin-bottom: 5px; }
+.is-compact .repair-rules th, .is-compact .repair-rules td { height: 21px; padding: 1px; font-size: 16px; line-height: 1; }
+.is-compact .repair-rules thead th { height: 18px; font-size: 10px; }
+.is-compact[data-role="scribe"] .intel-content { padding: 4px 8px; }
+.is-compact[data-role="scribe"] .action-grid { padding-bottom: 2px; }
+.route-target { color: var(--cyan) !important; font-size: 13px !important; font-weight: 900; }
+.is-compact .diagnostic-legend { font-size: 12px; }
+.is-compact .pressure-readout { gap: 5px; }

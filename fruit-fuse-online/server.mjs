@@ -3,6 +3,7 @@ import { readFile, stat } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { DIAGNOSTIC_CODES, makeCooperativeIncident, stabilizationPressure } from "./party-rules.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(__dirname, "public");
@@ -505,8 +506,10 @@ function setTutorialRole(room, player, roleId) {
   if (!room.tutorial || room.phase !== "playing") return;
   if (!ROLES.some(role => role.id === roleId)) return;
 
+  if (player.role === "operator") room.puzzle.tutorialOperatorPosition = { x: player.x, y: player.y };
   player.role = roleId;
-  const spawn = spawnFor(roleId, 0);
+  const spawn = roleId === "operator" && room.puzzle.tutorialOperatorPosition
+    ? room.puzzle.tutorialOperatorPosition : spawnFor(roleId, 0);
   player.x = spawn.x;
   player.y = spawn.y;
   player.facing = "down";
@@ -563,7 +566,7 @@ function startRoom(room) {
   room.mistakes = 0;
   room.maxMistakes = room.tutorial ? 99 : scenario.maxMistakes;
   room.startedAt = Date.now();
-  room.deadline = room.startedAt + (room.tutorial ? 90_000 : scenario.durationSec * 1000);
+  room.deadline = room.startedAt + (room.tutorial ? 120_000 : scenario.durationSec * 1000);
   room.endedAt = 0;
   room.outcomeReason = null;
   room.timeLeftAtEnd = 0;
@@ -579,22 +582,14 @@ function startRoom(room) {
     player.input = normalizeInput({});
   }
 
-  addLog(room, room.tutorial ? "Куратор: нажмите «Сканировать аварию»." : `${scenario.name}: началась весёлая аварийная смена.`, "system");
+  addLog(room, room.tutorial ? "Куратор: сканируйте узлы и найдите показание вне нормы." : `${scenario.name}: началась аварийная смена.`, "system");
   broadcast(room);
 }
 
 function makePartyShift(seed, scenario, tutorial = false) {
   const rng = mulberry32(seed);
   const source = tutorial ? [INCIDENTS[0]] : shuffle(INCIDENTS, rng).slice(0, 4);
-  const incidents = source.map((blueprint, index) => {
-    const solutionIndex = tutorial ? 0 : Math.floor(rng() * blueprint.choices.length);
-    return {
-      ...blueprint,
-      id: `${blueprint.id}-${index + 1}`,
-      choices: blueprint.choices.map(choice => ({ ...choice })),
-      solutionId: blueprint.choices[solutionIndex].id
-    };
-  });
+  const incidents = source.map((blueprint, index) => makeCooperativeIncident(blueprint, index, rng, tutorial));
 
   return {
     seed,
@@ -606,8 +601,12 @@ function makePartyShift(seed, scenario, tutorial = false) {
     routeReady: false,
     signalReady: false,
     signalId: null,
+    clueReported: null,
+    modeReported: null,
+    operatorArmed: false,
+    cueUntil: 0,
     incidentStartedAt: Date.now(),
-    incidentDurationSec: tutorial ? 90 : 55,
+    incidentDurationSec: tutorial ? 120 : 65,
     chaos: null,
     chaosUntil: 0,
     lastResolved: null,
@@ -635,6 +634,13 @@ function tickRooms() {
     room.lastTick = now;
 
     if (room.phase === "playing") {
+      if (room.puzzle?.cueUntil && now > room.puzzle.cueUntil) {
+        room.puzzle.cueUntil = 0;
+        if (room.tutorial) {
+          const trainee = [...room.players.values()][0];
+          if (trainee?.role === "operator") setTutorialRole(room, trainee, "lookout");
+        }
+      }
       for (const player of room.players.values()) {
         movePlayer(room, player, dt);
       }
@@ -691,21 +697,55 @@ function handleInteraction(room, player, message) {
     if (player.role !== "lookout" || room.puzzle.lookoutScanned) return;
     room.puzzle.lookoutScanned = true;
     triggerPlayerAction(player, "scan");
-    addLog(room, `${player.nick}: авария найдена — ${room.scenario.moduleNames[incident.station]}.`, "success");
+    addLog(room, `${player.nick}: показания узлов получены.`, "system");
     return;
   }
 
   if (message.action === "route") {
     if (player.role !== "lookout" || !room.puzzle.lookoutScanned || room.puzzle.routeReady) return;
+    if (!Object.hasOwn(MODULES, String(message.station || ""))) return;
+    if (message.station !== incident.station) {
+      addChaos(room, `${player.nick} отметил исправный узел.`, null);
+      return;
+    }
     room.puzzle.routeReady = true;
     triggerPlayerAction(player, "communicate");
-    addLog(room, `${player.nick}: маршрут отмечен. Архивариус, дайте символ.`, "ping");
+    addLog(room, `${player.nick}: цель — ${room.scenario.moduleNames[incident.station]}. Оператор, проверьте терминал.`, "ping");
+    return;
+  }
+
+  if (message.action === "report") {
+    if (player.role !== "lookout" || !room.puzzle.routeReady || room.puzzle.clueReported !== null) return;
+    if (!DIAGNOSTIC_CODES.some(code => code.id === message.code)) return;
+    if (message.code !== incident.clueId) {
+      addChaos(room, `${player.nick} неверно расшифровал сигнал сканера.`, null);
+      return;
+    }
+    room.puzzle.clueReported = message.code;
+    triggerPlayerAction(player, "communicate");
+    addLog(room, `${player.nick}: ${DIAGNOSTIC_CODES.find(code => code.id === message.code).symbol} — код сканера.`, "symbol");
+    if (room.tutorial) setTutorialRole(room, player, "operator");
+    return;
+  }
+
+  if (message.action === "terminal") {
+    if (player.role !== "operator" || !room.puzzle.routeReady || room.puzzle.modeReported !== null) return;
+    if (distance(player, MODULES[incident.station]) > MODULES[incident.station].radius) return;
+    if (![0, 1].includes(message.mode)) return;
+    if (message.mode !== incident.mode) {
+      addChaos(room, `${player.nick} неверно прочитал режим терминала.`, null);
+      return;
+    }
+    room.puzzle.modeReported = message.mode;
+    triggerPlayerAction(player, incident.station);
+    addLog(room, `${player.nick}: режим ${message.mode ? "−" : "+"} — данные терминала.`, "ping");
     if (room.tutorial) setTutorialRole(room, player, "scribe");
     return;
   }
 
   if (message.action === "signal") {
     if (player.role !== "scribe" || !room.puzzle.routeReady || room.puzzle.signalReady) return;
+    if (room.puzzle.clueReported === null || room.puzzle.modeReported === null) return;
     const choice = incident.choices.find(item => item.id === String(message.choice || ""));
     if (!choice) return;
     triggerPlayerAction(player, "communicate");
@@ -720,7 +760,7 @@ function handleInteraction(room, player, message) {
     return;
   }
 
-  if (message.action === "resolve") {
+  if (message.action === "prepare") {
     if (player.role !== "operator") return;
     if (!room.puzzle.routeReady || !room.puzzle.signalReady) {
       player.peer.send({ type: "error", message: "Сначала дождитесь маршрута и символа команды" });
@@ -730,12 +770,41 @@ function handleInteraction(room, player, message) {
     if (!module || distance(player, module) > module.radius) return;
     const choice = incident.choices.find(item => item.id === String(message.choice || ""));
     if (!choice) return;
+    if (room.puzzle.operatorArmed) return;
     triggerPlayerAction(player, incident.station);
     if (choice.id !== incident.solutionId) {
       addChaos(room, `${player.nick} применил не тот инструмент.`, null);
       return;
     }
-    resolveIncident(room, player, incident, choice);
+    room.puzzle.operatorArmed = true;
+    addLog(room, `${player.nick}: инструмент подключён. Наблюдатель, ловите безопасный момент.`, "ping");
+    if (room.tutorial) setTutorialRole(room, player, "lookout");
+    return;
+  }
+
+  if (message.action === "cue") {
+    if (player.role !== "lookout" || !room.puzzle.operatorArmed || room.puzzle.cueUntil > Date.now()) return;
+    const pressure = stabilizationPressure(room.puzzle, Date.now(), room.tutorial);
+    if (pressure < 25 || pressure > 75) {
+      addChaos(room, `${player.nick} дал команду вне безопасной зоны.`, null);
+      return;
+    }
+    room.puzzle.cueUntil = Date.now() + (room.tutorial ? 5000 : 2200);
+    triggerPlayerAction(player, "communicate");
+    addLog(room, `${player.nick}: СЕЙЧАС! Запускайте ремонт.`, "ping");
+    if (room.tutorial) setTutorialRole(room, player, "operator");
+    return;
+  }
+
+  if (message.action === "resolve") {
+    if (player.role !== "operator" || !room.puzzle.operatorArmed) return;
+    if (distance(player, MODULES[incident.station]) > MODULES[incident.station].radius) return;
+    if (room.puzzle.cueUntil < Date.now()) {
+      addChaos(room, `${player.nick} запустил ремонт без команды «Сейчас».`, null);
+      return;
+    }
+    triggerPlayerAction(player, incident.station);
+    resolveIncident(room, player, incident, incident.choices.find(choice => choice.id === incident.solutionId));
   }
 }
 
@@ -760,6 +829,10 @@ function resolveIncident(room, player, incident, choice) {
   room.puzzle.routeReady = false;
   room.puzzle.signalReady = false;
   room.puzzle.signalId = null;
+  room.puzzle.clueReported = null;
+  room.puzzle.modeReported = null;
+  room.puzzle.operatorArmed = false;
+  room.puzzle.cueUntil = 0;
   room.puzzle.incidentStartedAt = now;
   addLog(room, "Новая авария! Наблюдатель, запускайте сканер.", "system");
 }
@@ -1012,7 +1085,7 @@ function buildState(room, player) {
         background: room.scenario.background,
         accent: room.scenario.accent,
         music: room.scenario.music,
-        durationSec: room.tutorial ? 90 : room.scenario.durationSec
+        durationSec: room.tutorial ? 120 : room.scenario.durationSec
       } : null,
       modules: Object.fromEntries(Object.entries(MODULES).map(([id, module]) => [id, {
         ...module,
@@ -1034,12 +1107,12 @@ function buildState(room, player) {
         actionSeq: other.actionSeq || 0,
         actionAgeMs: other.action && now < other.actionUntil ? now - other.actionStartedAt : 0
       })),
-      puzzleView: room.puzzle ? partyViewFor(room.puzzle, player.role, room.tutorial) : null
+      puzzleView: room.puzzle ? partyViewFor(room.puzzle, player.role, room.tutorial, player) : null
     }
   };
 }
 
-function partyViewFor(puzzle, role, tutorial = false) {
+function partyViewFor(puzzle, role, tutorial = false, player = null) {
   const now = Date.now();
   const incident = currentIncident(puzzle);
   const common = {
@@ -1048,19 +1121,26 @@ function partyViewFor(puzzle, role, tutorial = false) {
       resolvedCount: puzzle.resolvedCount,
       totalIncidents: puzzle.incidents.length,
       incidentIndex: puzzle.currentIndex,
-      activeModule: incident?.station || null,
-      moduleOrder: puzzle.incidents.map(item => item.station)
+      activeModule: puzzle.routeReady ? incident?.station || null : null,
+      moduleOrder: puzzle.routeReady && incident ? [incident.station] : []
     },
     phase: !puzzle.lookoutScanned
       ? "scan"
       : !puzzle.routeReady
         ? "route"
-        : !puzzle.signalReady ? "signal" : "action",
+        : puzzle.clueReported === null ? "report"
+          : puzzle.modeReported === null ? "terminal"
+            : !puzzle.signalReady ? "signal"
+              : !puzzle.operatorArmed ? "prepare" : puzzle.cueUntil > now ? "action" : "sync",
     team: {
       scanned: puzzle.lookoutScanned,
       routeReady: puzzle.routeReady,
       signalReady: puzzle.signalReady,
-      signalId: puzzle.signalId
+      signalId: puzzle.signalId,
+      clueReported: puzzle.clueReported,
+      modeReported: puzzle.modeReported,
+      operatorArmed: puzzle.operatorArmed,
+      cueRemainingMs: Math.max(0, puzzle.cueUntil - now)
     },
     incidentTimer: Math.max(0, Math.ceil((puzzle.incidentDurationSec * 1000 - (now - puzzle.incidentStartedAt)) / 1000)),
     chaos: puzzle.chaosUntil > now ? { ...puzzle.chaos, remainingMs: puzzle.chaosUntil - now } : null,
@@ -1068,8 +1148,7 @@ function partyViewFor(puzzle, role, tutorial = false) {
     incident: incident ? {
       id: incident.id,
       title: incident.title,
-      alert: incident.alert,
-      station: incident.station
+      alert: incident.alert
     } : null
   };
 
@@ -1079,29 +1158,32 @@ function partyViewFor(puzzle, role, tutorial = false) {
     return {
       ...common,
       scanner: puzzle.lookoutScanned ? {
-        station: incident.station,
-        alert: incident.alert
-      } : null
+        readings: incident.readings.map(reading => ({ ...reading })),
+        normalMin: incident.normalMin,
+        normalMax: incident.normalMax,
+        pattern: puzzle.routeReady ? incident.pattern : null,
+        legend: incident.legend.map(code => ({ ...code }))
+      } : null,
+      pressure: puzzle.operatorArmed ? stabilizationPressure(puzzle, now, tutorial) : null
     };
   }
 
   if (role === "scribe") {
-    const solution = incident.choices.find(choice => choice.id === incident.solutionId);
     return {
       ...common,
       manual: puzzle.routeReady ? {
-        solution: { ...solution },
+        rules: incident.rules.map(rule => ({ ...rule })),
         choices: incident.choices.map(choice => ({ ...choice }))
       } : null
     };
   }
 
   if (role === "operator") {
-    const solution = incident.choices.find(choice => choice.id === incident.solutionId);
     return {
       ...common,
       choices: incident.choices.map(choice => ({ ...choice })),
-      training: tutorial ? { solution: { ...solution } } : undefined
+      terminal: puzzle.routeReady && player && distance(player, MODULES[incident.station]) <= MODULES[incident.station].radius
+        ? { mode: incident.mode } : null
     };
   }
 
