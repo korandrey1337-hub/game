@@ -248,6 +248,9 @@ document.addEventListener("pointerdown", event => {
   if (!(event.target instanceof Element) || event.target.closest("input, textarea, [contenteditable]")) return;
   dismissKeyboard();
 });
+document.addEventListener("contextmenu", event => {
+  if (event.target instanceof Element && event.target.closest("button")) event.preventDefault();
+});
 function handleOrientationChange() {
   dismissKeyboard();
   releaseAllInput();
