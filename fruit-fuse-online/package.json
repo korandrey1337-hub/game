@@ -6,6 +6,6 @@
   "scripts": {
     "start": "node server.mjs",
     "dev": "node server.mjs",
-    "test": "node tests/stats.test.mjs && node tests/lobby-smoke.mjs && node tests/party-smoke.mjs"
+    "test": "node tests/stats.test.mjs && node tests/lobby-smoke.mjs && node tests/party-smoke.mjs && node tests/intro-smoke.mjs"
   }
 }

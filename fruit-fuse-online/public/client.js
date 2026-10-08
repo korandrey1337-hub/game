@@ -6,6 +6,14 @@ ctx.imageSmoothingEnabled = false;
 
 const canvasStage = document.querySelector(".canvas-stage");
 const bootScreen = document.querySelector("#bootScreen");
+const cinematic = document.querySelector("#cinematic");
+const introVideo = document.querySelector("#introVideo");
+const introPlay = document.querySelector("#introPlay");
+const introSound = document.querySelector("#introSound");
+const introRestart = document.querySelector("#introRestart");
+const introSkip = document.querySelector("#introSkip");
+const keyboardDone = document.querySelector("#keyboardDone");
+const chatToggle = document.querySelector("#chatToggle");
 const gameShell = document.querySelector("#gameShell");
 const joinButton = document.querySelector("#joinButton");
 const tutorialButton = document.querySelector("#tutorialButton");
@@ -152,6 +160,138 @@ const playerStats = new CoreBelowStats();
 playerStats.startSession();
 updateTutorialGate();
 
+function dismissKeyboard() {
+  const active = document.activeElement;
+  if (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement || active?.isContentEditable) active.blur();
+  keyboardDone.hidden = true;
+}
+
+function finishCinematic() {
+  if (cinematic.hidden) return;
+  introVideo.pause();
+  cinematic.hidden = true;
+  bootScreen.inert = false;
+  dismissKeyboard();
+}
+
+bootScreen.inert = true;
+introVideo.muted = true;
+function updateIntroSound() {
+  introSound.classList.toggle("is-muted", introVideo.muted);
+  introSound.setAttribute("aria-label", introVideo.muted ? "Включить звук заставки" : "Выключить звук заставки");
+  introSound.title = introSound.getAttribute("aria-label");
+}
+function playCinematic(withSound = false) {
+  if (cinematic.hidden || introVideo.ended) return;
+  if (withSound) introVideo.muted = false;
+  updateIntroSound();
+  introPlay.hidden = true;
+  introVideo.play().catch(() => { if (!cinematic.hidden) introPlay.hidden = false; });
+}
+function autoStartCinematic() {
+  if (!document.hidden) playCinematic();
+}
+introVideo.addEventListener("ended", () => {
+  introPlay.textContent = "ПРОДОЛЖИТЬ →";
+  introPlay.hidden = false;
+  introRestart.hidden = false;
+  introSkip.hidden = true;
+});
+introVideo.addEventListener("error", finishCinematic);
+introSkip.addEventListener("click", finishCinematic);
+introPlay.addEventListener("click", () => {
+  if (introVideo.ended) finishCinematic();
+  else playCinematic(true);
+});
+function restartCinematic() {
+  dismissKeyboard();
+  introVideo.currentTime = 0;
+  cinematic.hidden = false;
+  bootScreen.inert = true;
+  introPlay.textContent = "▶ СМОТРЕТЬ ЗАСТАВКУ";
+  introPlay.hidden = false;
+  introRestart.hidden = true;
+  introSkip.hidden = false;
+  playCinematic(true);
+}
+document.querySelector("#introReplay").addEventListener("click", restartCinematic);
+introRestart.addEventListener("click", restartCinematic);
+introSound.addEventListener("click", () => {
+  introVideo.muted = !introVideo.muted;
+  updateIntroSound();
+  if (introVideo.paused && !introVideo.ended) playCinematic();
+});
+updateIntroSound();
+window.addEventListener("focus", autoStartCinematic);
+window.addEventListener("blur", () => { if (!cinematic.hidden) introVideo.pause(); });
+autoStartCinematic();
+keyboardDone.addEventListener("click", dismissKeyboard);
+document.querySelector("#rotateMenu").addEventListener("click", showMenu);
+document.addEventListener("focusin", event => {
+  if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) keyboardDone.hidden = false;
+});
+document.addEventListener("focusout", () => {
+  setTimeout(() => {
+    keyboardDone.hidden = !(document.activeElement instanceof HTMLInputElement || document.activeElement instanceof HTMLTextAreaElement);
+  }, 0);
+});
+document.addEventListener("keydown", event => {
+  if (event.target instanceof HTMLInputElement && event.target !== chatInput && event.key === "Enter") {
+    event.preventDefault();
+    dismissKeyboard();
+  }
+});
+document.addEventListener("pointerdown", event => {
+  if (!(event.target instanceof Element) || event.target.closest("input, textarea, [contenteditable]")) return;
+  dismissKeyboard();
+});
+function handleOrientationChange() {
+  dismissKeyboard();
+  releaseAllInput();
+}
+window.addEventListener("orientationchange", handleOrientationChange);
+screen.orientation?.addEventListener("change", handleOrientationChange);
+function updateVisibleViewport() {
+  const viewport = window.visualViewport;
+  const visibleHeight = viewport?.height || window.innerHeight;
+  document.documentElement.style.setProperty("--visible-height", `${Math.round(visibleHeight)}px`);
+  const keyboardInset = viewport ? Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop) : 0;
+  document.documentElement.style.setProperty("--keyboard-inset", `${Math.round(keyboardInset)}px`);
+  gameShell.classList.toggle("is-compact", window.innerWidth > window.innerHeight && window.innerHeight <= 600);
+}
+updateVisibleViewport();
+window.visualViewport?.addEventListener("resize", updateVisibleViewport);
+window.visualViewport?.addEventListener("scroll", updateVisibleViewport);
+window.addEventListener("resize", updateVisibleViewport);
+const objectiveResize = new ResizeObserver(entries => {
+  gameShell.style.setProperty("--compact-hint-height", `${Math.ceil(entries[0].target.getBoundingClientRect().height) + 6}px`);
+});
+objectiveResize.observe(objectiveCard);
+chatToggle.addEventListener("click", () => {
+  const open = gameShell.classList.toggle("is-chat-open");
+  chatToggle.setAttribute("aria-expanded", String(open));
+  if (!open) dismissKeyboard();
+});
+
+let menuTouchY = null;
+bootScreen.addEventListener("touchstart", event => {
+  menuTouchY = event.touches.length === 1 ? event.touches[0].clientY : null;
+}, { passive: true });
+bootScreen.addEventListener("touchmove", event => {
+  if (menuTouchY === null || event.touches.length !== 1) return;
+  const y = event.touches[0].clientY;
+  const delta = y - menuTouchY;
+  menuTouchY = y;
+  const bottom = bootScreen.scrollHeight - bootScreen.clientHeight;
+  // Keep overscroll gestures inside the embedded menu without blocking its scroll.
+  if ((delta > 0 && bootScreen.scrollTop <= 0) || (delta < 0 && bootScreen.scrollTop >= bottom - 1)) {
+    if (event.cancelable) event.preventDefault();
+  }
+}, { passive: false });
+const endMenuTouch = () => { menuTouchY = null; };
+bootScreen.addEventListener("touchend", endMenuTouch, { passive: true });
+bootScreen.addEventListener("touchcancel", endMenuTouch, { passive: true });
+
 joinButton.addEventListener("click", () => {
   if (!tutorialComplete) return;
   audio.start();
@@ -159,6 +299,7 @@ joinButton.addEventListener("click", () => {
   connect(false);
 });
 tutorialButton.addEventListener("click", () => {
+  dismissKeyboard();
   audio.start();
   audio.play("ui");
   tutorialIntro.hidden = false;
@@ -334,15 +475,20 @@ window.addEventListener("keyup", event => {
 
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) {
+    dismissKeyboard();
+    introVideo.pause();
     releaseAllInput();
     flushStatsActivity();
     statsActivityStartedAt = null;
   } else {
+    autoStartCinematic();
     statsActivityStartedAt = performance.now();
   }
 });
 window.addEventListener("blur", releaseAllInput);
+window.addEventListener("blur", dismissKeyboard);
 window.addEventListener("pagehide", flushStatsActivity);
+window.addEventListener("pagehide", dismissKeyboard);
 
 setInterval(sendInput, 80);
 setInterval(flushStatsActivity, 15_000);
@@ -386,6 +532,7 @@ function closeTutorialIntro() {
 }
 
 function connect(tutorial) {
+  dismissKeyboard();
   if (socket && socket.readyState <= WebSocket.OPEN) socket.close();
 
   returningToMenu = false;
@@ -419,6 +566,8 @@ function connect(tutorial) {
       const previousState = state;
       selfId = message.selfId;
       state = message.room;
+      document.body.classList.remove("is-menu");
+      document.body.classList.add("is-game");
       stateReceivedAt = performance.now();
       if (state.tutorial && state.phase === "won") markTutorialComplete();
       trackPlayerStats(previousState, state, selfId);
@@ -454,6 +603,11 @@ function socketEndpoint() {
 }
 
 function showMenu() {
+  dismissKeyboard();
+  document.body.classList.remove("is-game");
+  document.body.classList.add("is-menu");
+  gameShell.classList.remove("is-chat-open");
+  chatToggle.setAttribute("aria-expanded", "false");
   audio.play("ui");
   returningToMenu = true;
   releaseAllInput();
@@ -650,6 +804,9 @@ function renderUi() {
   gameShell.dataset.role = self?.role || "observer";
   gameShell.classList.toggle("is-tutorial", Boolean(state.tutorial));
   gameShell.dataset.phase = state.phase;
+  document.querySelector("#compactTutorialStep").textContent = state.tutorial
+    ? `${Math.max(0, TUTORIAL_ROLE_ORDER.indexOf(self?.role)) + 1}/3`
+    : `${Math.min((view?.progress?.incidentIndex || 0) + 1, view?.progress?.totalIncidents || 4)}/${view?.progress?.totalIncidents || 4}`;
 
   roomCode.textContent = state.tutorial ? "УЧЕБА" : state.code;
   roleName.textContent = `${ROLE_LABELS[self?.role] || "ЗРИТЕЛЬ"} · ${ROLE_TRAITS[self?.role]?.short || "НАБЛЮДАЕТ"}`;
@@ -749,6 +906,7 @@ function renderUi() {
 
   renderObjective(self, nearby);
   renderConsole(self, nearby);
+  gameShell.dataset.consoleOpen = String(!workPanel.hidden);
   renderLog();
   renderStory(self, nearby);
   renderProximity(self, nearby);

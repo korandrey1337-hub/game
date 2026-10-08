@@ -177,6 +177,26 @@ const server = createServer(async (req, res) => {
     const info = await stat(absolute);
     if (!info.isFile()) throw new Error("Not a file");
     const body = await readFile(absolute);
+    if (path.extname(absolute).toLowerCase() === ".mp4") {
+      const headers = { "Content-Type": "video/mp4", "Accept-Ranges": "bytes", "Cache-Control": "no-store" };
+      const range = req.headers.range;
+      if (range) {
+        const match = /^bytes=(\d*)-(\d*)$/.exec(range);
+        const start = match && match[1] ? Number(match[1]) : match && match[2] ? Math.max(0, body.length - Number(match[2])) : NaN;
+        const end = match && match[1] && match[2] ? Math.min(body.length - 1, Number(match[2])) : body.length - 1;
+        if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start > end || start >= body.length || (match && !match[1] && Number(match[2]) === 0)) {
+          res.writeHead(416, { ...headers, "Content-Range": `bytes */${body.length}` });
+          res.end();
+          return;
+        }
+        res.writeHead(206, { ...headers, "Content-Range": `bytes ${start}-${end}/${body.length}`, "Content-Length": end - start + 1 });
+        res.end(req.method === "HEAD" ? undefined : body.subarray(start, end + 1));
+        return;
+      }
+      res.writeHead(200, { ...headers, "Content-Length": body.length });
+      res.end(req.method === "HEAD" ? undefined : body);
+      return;
+    }
     res.writeHead(200, {
       "Content-Type": mimeFor(absolute),
       "Cache-Control": "no-store"

@@ -27,7 +27,7 @@ console.log("Lobby smoke test passed: incomplete crews are blocked and command t
 guest.close();
 
 async function connect() {
-  const socket = new WebSocket("http://127.0.0.1:4173/socket");
+  const socket = new WebSocket(`http://127.0.0.1:${process.env.PORT || 4173}/socket`);
   let latest = null;
   const stateWaiters = [];
   const errorWaiters = [];

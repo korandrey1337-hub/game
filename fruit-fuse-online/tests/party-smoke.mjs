@@ -143,7 +143,7 @@ async function move(client, input, duration) {
 }
 
 async function connect() {
-  const socket = new WebSocket("http://127.0.0.1:4173/socket");
+  const socket = new WebSocket(`http://127.0.0.1:${process.env.PORT || 4173}/socket`);
   let latest = null;
   let ownId = null;
   const stateWaiters = [];

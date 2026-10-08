@@ -7,11 +7,21 @@
     <title>Core Below</title>
     <link rel="stylesheet" href="./styles.css">
   </head>
-  <body>
+  <body class="is-menu">
+    <section class="cinematic" id="cinematic" aria-label="Вступительный ролик">
+      <video id="introVideo" src="./assets/core-below-intro.mp4" poster="./assets/reactor-room-v2.png" preload="auto" playsinline webkit-playsinline muted></video>
+      <div class="cinematic-controls">
+        <button id="introRestart" aria-label="Повторить заставку" title="Повторить заставку" hidden>↻</button>
+        <button id="introSound" aria-label="Включить звук заставки" title="Включить звук заставки">♫</button>
+        <button id="introPlay">▶ СМОТРЕТЬ ЗАСТАВКУ</button>
+        <button id="introSkip">ПРОПУСТИТЬ →</button>
+      </div>
+    </section>
     <aside class="rotate-notice" aria-label="Поверните телефон горизонтально">
       <div class="rotate-icon" aria-hidden="true"><span></span><b>↻</b></div>
       <strong>ПОВЕРНИТЕ ТЕЛЕФОН</strong>
       <p>Игра работает в горизонтальном режиме</p>
+      <button id="rotateMenu">ВЕРНУТЬСЯ В МЕНЮ</button>
     </aside>
 
     <section class="boot-screen" id="bootScreen" aria-label="Главное меню">
@@ -24,11 +34,11 @@
         <div class="join-box">
           <label>
             <span>ПОЗЫВНОЙ</span>
-            <input id="nameInput" maxlength="18" autocomplete="nickname" placeholder="СТАЖЕР">
+            <input id="nameInput" maxlength="18" autocomplete="off" enterkeyhint="done" placeholder="СТАЖЕР">
           </label>
           <label>
             <span>КОД КОМНАТЫ</span>
-            <input id="roomInput" maxlength="6" autocomplete="off" placeholder="ПУСТО = НОВАЯ КОМНАТА">
+            <input id="roomInput" maxlength="6" autocomplete="off" enterkeyhint="done" autocapitalize="characters" placeholder="ПУСТО = НОВАЯ КОМНАТА">
           </label>
           <div class="menu-actions">
             <button id="joinButton" class="primary">ВОЙТИ В СМЕНУ</button>
@@ -36,10 +46,13 @@
           </div>
           <p class="tutorial-gate" id="tutorialGate" aria-live="polite"></p>
           <button id="statsOpenMenu" class="stats-menu-button">СТАТИСТИКА</button>
+          <button id="introReplay" class="stats-menu-button">▶ ЗАСТАВКА</button>
           <p class="connection-status" id="connectionStatus" role="status" aria-live="polite"></p>
         </div>
       </div>
     </section>
+
+    <button id="keyboardDone" class="keyboard-done" hidden>ГОТОВО · ЗАКРЫТЬ КЛАВИАТУРУ</button>
 
     <section class="tutorial-intro" id="tutorialIntro" role="dialog" aria-modal="true" aria-labelledby="tutorialIntroTitle" hidden>
       <div class="tutorial-intro-backdrop"></div>
@@ -66,12 +79,14 @@
       <header class="game-bar">
         <div class="game-brand">CORE <span>BELOW</span></div>
         <div class="status-role" id="roleName">НЕ В СЕТИ</div>
+        <span id="compactTutorialStep" class="compact-tutorial-step"></span>
         <div class="status-scenario" id="scenarioName">ОЖИДАНИЕ СМЕНЫ</div>
         <div class="status-room">КОМНАТА <strong id="roomCode">-----</strong></div>
         <div class="status-time" id="timer">--:--</div>
         <div class="status-strikes">СБОИ <strong id="strikes">0/6</strong></div>
         <div class="module-dots" id="moduleDots" aria-label="Прогресс аварий"></div>
         <button id="statsOpenGame" class="icon-button" title="Открыть статистику" aria-label="Открыть статистику">▥</button>
+        <button id="chatToggle" class="icon-button compact-chat-toggle" title="Командный канал" aria-label="Командный канал" aria-expanded="false" aria-controls="relayPanel">✉</button>
         <button id="audioButton" class="icon-button" title="Выключить звук" aria-label="Выключить звук">♫</button>
         <button id="menuButton" class="icon-button" title="Вернуться в меню" aria-label="Вернуться в меню">×</button>
       </header>
