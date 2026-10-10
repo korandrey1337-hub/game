@@ -588,7 +588,15 @@ function connect(tutorial) {
       }
       return;
     }
-    if (message.type === "error") addClientLine(message.message, "danger");
+    if (message.type === "error") {
+      if (!focusedAfterJoin) {
+        connectionStatus.textContent = message.message;
+        tutorialButton.disabled = false;
+        updateTutorialGate();
+      } else {
+        addClientLine(message.message, "danger");
+      }
+    }
   });
 
   socket.addEventListener("close", () => {

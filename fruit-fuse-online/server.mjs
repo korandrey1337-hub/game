@@ -397,12 +397,17 @@ function handleMessage(peer, message) {
 }
 
 function joinRoom(peer, message) {
-  leaveRoom(peer);
-
   const tutorial = message.tutorial === true;
   const requested = tutorial ? "" : sanitizeCode(message.roomCode);
   const code = requested || makeRoomCode();
   let room = tutorial ? null : rooms.get(code);
+
+  if (room?.phase === "playing" && !room.tutorial) {
+    peer.send({ type: "error", message: "Смена уже идёт — зайдите после неё" });
+    return;
+  }
+
+  leaveRoom(peer);
 
   if (!room) {
     room = createRoom(code, tutorial);

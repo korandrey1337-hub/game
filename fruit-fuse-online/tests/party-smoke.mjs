@@ -63,12 +63,35 @@ async function testTutorial() {
 
 async function testFullShift() {
   const { operator, lookout, scribe } = await createCrew("SHIFT");
+  const observer = await connect();
+  observer.send({ type: "join", name: "LOBBY-OBSERVER", roomCode: operator.latest().code });
+  await observer.waitFor(room => room.phase === "lobby" && room.players.length === 4);
+  assert.equal(observer.ownPlayer().role, "observer");
   operator.send({ type: "start" });
   await Promise.all([
     operator.waitFor(room => room.phase === "playing"),
     lookout.waitFor(room => room.phase === "playing"),
     scribe.waitFor(room => room.phase === "playing")
   ]);
+
+  const lateGuest = await connect();
+  lateGuest.send({ type: "join", name: "LATE-GUEST", roomCode: operator.latest().code });
+  assert.equal(await lateGuest.waitForError(message => message.includes("Смена уже идёт")), "Смена уже идёт — зайдите после неё");
+  assert.equal(lateGuest.latest(), null);
+  assert.equal(operator.latest().players.length, 4);
+
+  const hostId = operator.ownPlayer().id;
+  operator.send({ type: "join", name: "REJOIN", roomCode: operator.latest().code });
+  await operator.waitForError(message => message.includes("Смена уже идёт"));
+  assert.equal(operator.ownPlayer().id, hostId);
+  assert.equal(operator.ownPlayer().nick, "SHIFT-OP");
+  assert.equal(operator.latest().isHost, true);
+
+  const trainee = await connect();
+  trainee.send({ type: "join", name: "INDEPENDENT-TRAINING", roomCode: operator.latest().code, tutorial: true });
+  await trainee.waitFor(room => room.tutorial && room.phase === "playing");
+  assert.notEqual(trainee.latest().code, operator.latest().code);
+  trainee.close();
 
   assert.ok(operator.latest().puzzleView.choices);
   assert.equal(lookout.latest().puzzleView.scanner, null);
@@ -139,6 +162,11 @@ async function testFullShift() {
   assert.equal(operator.latest().phase, "won");
   assert.equal(operator.latest().puzzleView.progress.resolvedCount, 4);
   assert.equal(operator.latest().mistakes, 2);
+  lateGuest.send({ type: "join", name: "AFTER-WIN", roomCode: operator.latest().code });
+  await lateGuest.waitFor(room => room.phase === "won" && room.players.length === 5);
+  assert.equal(lateGuest.ownPlayer().role, "observer");
+  lateGuest.close();
+  observer.close();
   operator.close();
   lookout.close();
   scribe.close();
@@ -148,6 +176,12 @@ async function testFailure() {
   const { operator, lookout, scribe } = await createCrew("FAIL");
   operator.send({ type: "start" });
   await scribe.waitFor(room => room.phase === "playing");
+  operator.close();
+  await lookout.waitFor(room => room.phase === "playing" && room.players.length === 2);
+  const replacement = await connect();
+  replacement.send({ type: "join", name: "LATE-REPLACEMENT", roomCode: lookout.latest().code });
+  await replacement.waitForError(message => message.includes("Смена уже идёт"));
+  assert.equal(replacement.latest(), null);
   lookout.send({ type: "interact", action: "scan" });
   await lookout.waitFor(room => room.puzzleView?.phase === "route");
   const scanner = lookout.latest().puzzleView.scanner;
@@ -157,10 +191,13 @@ async function testFailure() {
     lookout.send({ type: "interact", action: "route", station: wrong });
     await scribe.waitFor(room => room.mistakes === count || room.phase === "lost");
   }
-  await operator.waitFor(room => room.phase === "lost");
-  assert.equal(operator.latest().outcomeReason, "mistakes");
-  assert.equal(operator.latest().mistakes, 6);
-  operator.close();
+  await lookout.waitFor(room => room.phase === "lost");
+  assert.equal(lookout.latest().outcomeReason, "mistakes");
+  assert.equal(lookout.latest().mistakes, 6);
+  replacement.send({ type: "join", name: "AFTER-LOSS", roomCode: lookout.latest().code });
+  await replacement.waitFor(room => room.phase === "lost" && room.players.length === 3);
+  assert.equal(replacement.ownPlayer().role, "operator");
+  replacement.close();
   lookout.close();
   scribe.close();
 }
