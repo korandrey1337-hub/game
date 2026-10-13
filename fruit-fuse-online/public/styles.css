@@ -381,6 +381,7 @@ input:disabled { border-color: #3c4445; color: #697372; }
 }
 
 .lobby header { display: flex; align-items: end; justify-content: space-between; gap: 20px; margin-bottom: 16px; }
+#inviteButton { min-width: 44px; margin-left: 8px; font-size: 22px; }
 .lobby header span { color: var(--cyan); font-size: 12px; }
 .lobby h2 { margin: 5px 0 0; font-size: 28px; }
 .lobby header p { max-width: 340px; margin: 0; color: var(--muted); font-size: 14px; }

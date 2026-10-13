@@ -4,10 +4,13 @@ import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { DIAGNOSTIC_CODES, makeCooperativeIncident, stabilizationPressure } from "./party-rules.mjs";
+import { createHubMatchReporter, verifyInitData } from "./hub.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(__dirname, "public");
 const PORT = Number(process.env.PORT || 4173);
+const HUB_GAME_SECRET = process.env.HUB_GAME_SECRET;
+const hubMatch = createHubMatchReporter({ secret: HUB_GAME_SECRET });
 
 const ROLES = [
   { id: "operator", name: "Operator", color: "#ffd15c" },
@@ -260,7 +263,7 @@ server.on("upgrade", (req, socket) => {
 });
 
 server.listen(PORT, "0.0.0.0", () => {
-  console.log(`Core Below is running at http://localhost:${PORT}`);
+  console.log(`Core Below is running at http://localhost:${server.address().port}`);
 });
 
 setInterval(tickRooms, 50);
@@ -393,6 +396,8 @@ function handleMessage(peer, message) {
     addLog(room, `${player.nick}: ${sanitize(message.text, 70)}`, "ping");
   } else if (message.type === "symbol") {
     sendSymbolRelay(room, player, message.tokens);
+  } else if (message.type === "leave") {
+    leaveRoom(peer);
   }
 }
 
@@ -401,8 +406,13 @@ function joinRoom(peer, message) {
   const requested = tutorial ? "" : sanitizeCode(message.roomCode);
   const code = requested || makeRoomCode();
   let room = tutorial ? null : rooms.get(code);
+  const hubUser = tutorial ? null : verifyInitData(message.initData, HUB_GAME_SECRET);
+  const returning = hubUser && room && !room.tutorial
+    ? [...room.players.values()].find(player => player.tgId === hubUser.id) || room.disconnectedPlayers.get(hubUser.id)
+    : null;
+  const returningHost = returning && room.hostId === returning.id;
 
-  if (room?.phase === "playing" && !room.tutorial) {
+  if (room?.phase === "playing" && !room.tutorial && !returning) {
     peer.send({ type: "error", message: "Смена уже идёт — зайдите после неё" });
     return;
   }
@@ -414,7 +424,18 @@ function joinRoom(peer, message) {
     rooms.set(code, room);
   }
 
-  const role = tutorial ? "lookout" : firstFreeRole(room) || "observer";
+  if (returning) {
+    room.players.delete(returning.id);
+    room.disconnectedPlayers.delete(hubUser.id);
+    if (returning.peer !== peer && returning.peer.alive) {
+      returning.peer.send({ type: "replaced", message: "Вы вошли в эту комнату в другом окне." });
+      returning.peer.roomCode = null;
+      disconnectPeer(returning.peer);
+    }
+    if (returningHost) room.hostId = peer.id;
+  }
+
+  const role = returning?.role || (tutorial ? "lookout" : firstFreeRole(room) || "observer");
   const spawn = spawnFor(role, room.players.size);
   const player = {
     id: peer.id,
@@ -431,11 +452,19 @@ function joinRoom(peer, message) {
     input: normalizeInput({}),
     connectedAt: Date.now()
   };
+  if (hubUser) {
+    player.tgId = hubUser.id;
+    player.nick = sanitize(hubUser.first_name, 18) || player.nick;
+    console.log(`[hub] player tgId=${player.tgId} room=room_${code}`);
+  }
+  if (returning) {
+    for (const key of ["x", "y", "facing", "connectedAt", "actionSeq"]) player[key] = returning[key];
+  }
 
   peer.roomCode = code;
   room.players.set(peer.id, player);
   if (!room.hostId) room.hostId = player.id;
-  addLog(room, tutorial ? "Учебный канал открыт." : `${player.nick} вошел в смену как ${roleName(role)}.`, "system");
+  addLog(room, tutorial ? "Учебный канал открыт." : `${player.nick} ${returning ? "вернулся" : "вошел"} в смену как ${roleName(role)}.`, "system");
   if (tutorial) startRoom(room);
   else broadcast(room);
 }
@@ -447,6 +476,8 @@ function createRoom(code, tutorial = false) {
     phase: "lobby",
     hostId: null,
     players: new Map(),
+    disconnectedPlayers: new Map(),
+    hubMatchActive: false,
     puzzle: null,
     shiftId: null,
     mistakes: 0,
@@ -488,7 +519,7 @@ function sanitize(value, max) {
 }
 
 function firstFreeRole(room) {
-  const taken = new Set([...room.players.values()].map(player => player.role));
+  const taken = new Set([...room.players.values(), ...room.disconnectedPlayers.values()].map(player => player.role));
   return ROLES.find(role => !taken.has(role.id))?.id;
 }
 
@@ -564,6 +595,10 @@ function startRoom(room) {
   const seed = Math.floor(Math.random() * 2 ** 31);
   const scenario = room.tutorial ? SCENARIOS[0] : chooseScenario(room);
   room.phase = "playing";
+  room.disconnectedPlayers.clear();
+  const tgIds = [...room.players.values()].map(player => player.tgId).filter(Number.isSafeInteger);
+  room.hubMatchActive = !room.tutorial && Boolean(HUB_GAME_SECRET) && tgIds.length > 0;
+  if (room.hubMatchActive) void hubMatch("start", `room_${room.code}`, tgIds);
   room.shiftId = randomUUID();
   room.scenarioId = scenario.id;
   room.scenario = scenario;
@@ -939,6 +974,11 @@ function finishRoom(room, phase, reason, message, tone) {
   if (room.phase !== "playing") return;
   const now = Date.now();
   room.phase = phase;
+  if (room.hubMatchActive) {
+    void hubMatch("end", `room_${room.code}`);
+    room.hubMatchActive = false;
+  }
+  room.disconnectedPlayers.clear();
   room.endedAt = now;
   room.outcomeReason = reason;
   room.timeLeftAtEnd = Math.max(0, Math.ceil((room.deadline - now) / 1000));
@@ -1069,6 +1109,7 @@ function buildState(room, player) {
     room: {
       code: room.code,
       tutorial: room.tutorial,
+      hubAuthenticated: Number.isSafeInteger(player.tgId),
       phase: room.phase,
       shiftId: room.shiftId,
       isHost: room.hostId === player.id,
@@ -1298,6 +1339,10 @@ function leaveRoom(peer) {
   const room = rooms.get(peer.roomCode);
   if (room) {
     const player = room.players.get(peer.id);
+    if (player?.tgId && room.phase === "playing" && !room.tutorial) {
+      player.input = normalizeInput({});
+      room.disconnectedPlayers.set(player.tgId, player);
+    }
     if (player) addLog(room, `${player.nick} left.`, "system");
     room.players.delete(peer.id);
     if (room.hostId === peer.id) {
@@ -1325,7 +1370,7 @@ function disconnectPeer(peer) {
 function cleanEmptyRooms() {
   const now = Date.now();
   for (const [code, room] of rooms) {
-    if (room.players.size === 0 && now - room.lastTick > 60_000) {
+    if (room.players.size === 0 && room.disconnectedPlayers.size === 0 && now - room.lastTick > 60_000) {
       rooms.delete(code);
     }
   }

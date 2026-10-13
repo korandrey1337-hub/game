@@ -1,5 +1,6 @@
 import { CoreBelowStats } from "./stats.js";
 import { createActionRenderer } from "./action-panel.js";
+import { createHubBridge } from "./hub-integration.js";
 
 const canvas = document.querySelector("#game");
 const ctx = canvas.getContext("2d");
@@ -26,6 +27,7 @@ const tutorialIntroBack = document.querySelector("#tutorialIntroBack");
 const menuButton = document.querySelector("#menuButton");
 const audioButton = document.querySelector("#audioButton");
 const startButton = document.querySelector("#startButton");
+const inviteButton = document.querySelector("#inviteButton");
 const endButton = document.querySelector("#endButton");
 const lobbyHint = document.querySelector("#lobbyHint");
 const nameInput = document.querySelector("#nameInput");
@@ -145,6 +147,15 @@ const COOP_PHASES = ["scan", "route", "report", "terminal", "signal", "prepare",
 const input = { up: false, down: false, left: false, right: false };
 const releaseTimers = { up: null, down: null, left: null, right: null };
 let socket = null;
+let reconnectTimer = null;
+let reconnectAttempts = 0;
+let invitedRoom = "";
+const hubBridge = createHubBridge(window.Hub, { onReady(ctx) {
+  if (!hubBridge.inHub) return;
+  if (ctx.user?.first_name) nameInput.value = ctx.user.first_name;
+  invitedRoom = hubBridge.startRoom;
+  tryEnterInvitedRoom();
+} });
 let state = null;
 let selfId = null;
 let lastInput = {};
@@ -175,6 +186,7 @@ function finishCinematic() {
   cinematic.hidden = true;
   bootScreen.inert = false;
   dismissKeyboard();
+  tryEnterInvitedRoom();
 }
 
 bootScreen.inert = true;
@@ -538,13 +550,16 @@ function closeTutorialIntro() {
   tutorialButton.focus();
 }
 
-function connect(tutorial) {
+function connect(tutorial, { room = roomInput.value, reconnecting = false } = {}) {
   dismissKeyboard();
+  clearTimeout(reconnectTimer);
+  if (!reconnecting) reconnectAttempts = 0;
+  hubBridge.leave();
   if (socket && socket.readyState <= WebSocket.OPEN) socket.close();
 
   returningToMenu = false;
   focusedAfterJoin = false;
-  socket = new WebSocket(socketEndpoint());
+  const ws = socket = new WebSocket(socketEndpoint());
   joinButton.disabled = true;
   tutorialButton.disabled = true;
   connectionStatus.textContent = "ПОДКЛЮЧЕНИЕ К СЕРВЕРУ...";
@@ -552,18 +567,21 @@ function connect(tutorial) {
   const oldText = activeButton.textContent;
   activeButton.textContent = "СОЕДИНЕНИЕ...";
 
-  socket.addEventListener("open", () => {
+  ws.addEventListener("open", async () => {
+    await hubBridge.ready;
+    if (ws !== socket) return;
     connectionStatus.textContent = "";
     send({
       type: "join",
-      name: nameInput.value || "СТАЖЕР",
-      roomCode: tutorial ? "" : roomInput.value,
+      ...hubBridge.joinData(nameInput.value || "СТАЖЕР"),
+      roomCode: tutorial ? "" : room,
       tutorial
     });
     activeButton.textContent = oldText;
   });
 
-  socket.addEventListener("message", event => {
+  ws.addEventListener("message", event => {
+    if (ws !== socket) return;
     const message = JSON.parse(event.data);
     if (message.type === "hello") {
       selfId = message.peerId;
@@ -573,6 +591,8 @@ function connect(tutorial) {
       const previousState = state;
       selfId = message.selfId;
       state = message.room;
+      reconnectAttempts = 0;
+      hubBridge.update(state);
       document.body.classList.remove("is-menu");
       document.body.classList.add("is-game");
       stateReceivedAt = performance.now();
@@ -588,24 +608,44 @@ function connect(tutorial) {
       }
       return;
     }
+    if (message.type === "replaced") {
+      returningToMenu = true;
+      hubBridge.leave();
+      addClientLine(message.message, "danger");
+      return;
+    }
     if (message.type === "error") {
       if (!focusedAfterJoin) {
         connectionStatus.textContent = message.message;
         tutorialButton.disabled = false;
         updateTutorialGate();
+        returningToMenu = true;
+        hubBridge.leave();
+        ws.close();
+        socket = null;
       } else {
         addClientLine(message.message, "danger");
       }
     }
   });
 
-  socket.addEventListener("close", () => {
+  ws.addEventListener("close", () => {
+    if (ws !== socket) return;
+    hubBridge.leave();
     tutorialButton.disabled = false;
     activeButton.textContent = oldText;
     updateTutorialGate();
     if (!returningToMenu) {
       connectionStatus.textContent = "СЕРВЕР ИГРЫ НЕДОСТУПЕН. ПРОВЕРЬТЕ АДРЕС BACKEND.";
       addClientLine("Связь с сервером потеряна.", "danger");
+      if (!tutorial && state?.hubAuthenticated && reconnectAttempts < 5) {
+        const code = state.code;
+        reconnectAttempts += 1;
+        reconnectTimer = setTimeout(() => {
+          if (socket !== ws || returningToMenu) return;
+          connect(false, { room: code, reconnecting: true });
+        }, Math.min(5000, reconnectAttempts * 1000));
+      }
     }
   });
 }
@@ -625,7 +665,11 @@ function showMenu() {
   chatToggle.setAttribute("aria-expanded", "false");
   audio.play("ui");
   returningToMenu = true;
+  clearTimeout(reconnectTimer);
+  reconnectAttempts = 0;
+  hubBridge.leave();
   releaseAllInput();
+  send({ type: "leave" });
   if (socket && socket.readyState <= WebSocket.OPEN) socket.close();
   socket = null;
   state = null;
@@ -639,7 +683,20 @@ function showMenu() {
   gameShell.classList.add("is-hidden");
   tutorialButton.disabled = false;
   updateTutorialGate();
+  tryEnterInvitedRoom();
 }
+
+function tryEnterInvitedRoom() {
+  if (!invitedRoom || !tutorialComplete || !cinematic.hidden || !tutorialIntro.hidden || bootScreen.classList.contains("is-hidden")) return;
+  const code = invitedRoom;
+  invitedRoom = "";
+  roomInput.value = code;
+  connect(false, { room: code });
+}
+
+inviteButton.addEventListener("click", () => {
+  if (state?.hubAuthenticated && !state.tutorial) hubBridge.invite(state.code);
+});
 
 function send(payload) {
   if (!socket || socket.readyState !== WebSocket.OPEN) return false;
@@ -834,6 +891,7 @@ function renderUi() {
   crewCount.textContent = `${state.players.length} В СЕТИ`;
 
   lobbyPanel.hidden = !inLobby;
+  inviteButton.hidden = !inLobby || !state.hubAuthenticated || !hubBridge.inHub;
   tutorialRoleBar.hidden = !state.tutorial || state.phase !== "playing";
   if (!tutorialRoleBar.hidden) renderTutorialProgress(self, view);
   relayPanel.hidden = inLobby || state.phase !== "playing";
