@@ -38,11 +38,11 @@ export function createHubBridge(hub, { onReady = () => {}, warn = console.warn }
   };
   return {
     ready,
-    get inHub() { return Boolean(hub?.inHub); },
+    get inHub() { return Boolean(hub?.inHub && context?.inHub !== false); },
     get context() { return context; },
     get startRoom() { return hubStartRoom(hub?.start || context?.start); },
     joinData(fallbackName) {
-      if (!hub?.inHub || !context?.initData) return { name: fallbackName };
+      if (!hub?.inHub || context?.inHub === false || !context?.initData) return { name: fallbackName };
       return { name: context.user?.first_name || fallbackName, initData: context.initData };
     },
     update(room) {
