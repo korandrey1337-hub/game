@@ -658,6 +658,7 @@ function socketEndpoint() {
 }
 
 function showMenu() {
+  if (state?.phase === "playing") window.CoreBelowHub?.track(state, selfId, true);
   dismissKeyboard();
   document.body.classList.remove("is-game");
   document.body.classList.add("is-menu");
@@ -705,6 +706,7 @@ function send(payload) {
 }
 
 function trackPlayerStats(previous, next, ownId) {
+  window.CoreBelowHub?.track(next, ownId);
   if (next.tutorial) return;
   const self = next.players.find(player => player.id === ownId);
   if (!self || !["operator", "lookout", "scribe"].includes(self.role)) return;

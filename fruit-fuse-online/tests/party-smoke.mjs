@@ -140,6 +140,7 @@ async function testFullShift() {
     if (index === 0) {
       operator.send({ type: "interact", action: "resolve" });
       await operator.waitFor(room => room.mistakes === 1);
+      assert.equal(operator.ownPlayer().timedRepair, false);
       await lookout.waitFor(room => room.puzzleView.pressure < 10 || room.puzzleView.pressure > 90);
       lookout.send({ type: "interact", action: "cue" });
       await lookout.waitFor(room => room.mistakes === 2);
@@ -162,6 +163,9 @@ async function testFullShift() {
   assert.equal(operator.latest().phase, "won");
   assert.equal(operator.latest().puzzleView.progress.resolvedCount, 4);
   assert.equal(operator.latest().mistakes, 2);
+  assert.equal(operator.ownPlayer().timedRepair, true);
+  assert.equal(lookout.ownPlayer().timedRepair, false);
+  assert.equal(scribe.ownPlayer().timedRepair, false);
   lateGuest.send({ type: "join", name: "AFTER-WIN", roomCode: operator.latest().code });
   await lateGuest.waitFor(room => room.phase === "won" && room.players.length === 5);
   assert.equal(lateGuest.ownPlayer().role, "observer");

@@ -458,7 +458,7 @@ function joinRoom(peer, message) {
     console.log(`[hub] player tgId=${player.tgId} room=room_${code}`);
   }
   if (returning) {
-    for (const key of ["x", "y", "facing", "connectedAt", "actionSeq"]) player[key] = returning[key];
+    for (const key of ["x", "y", "facing", "connectedAt", "actionSeq", "timedRepairShiftId"]) player[key] = returning[key];
   }
 
   peer.roomCode = code;
@@ -854,6 +854,7 @@ function currentIncident(puzzle) {
 
 function resolveIncident(room, player, incident, choice) {
   const now = Date.now();
+  if (room.puzzle.cueUntil >= now) player.timedRepairShiftId = room.shiftId;
   room.puzzle.resolvedCount += 1;
   room.puzzle.lastResolved = { title: incident.title, symbol: choice.symbol, label: choice.label };
   room.puzzle.lastResolvedAt = now;
@@ -1144,6 +1145,7 @@ function buildState(room, player) {
         nick: other.nick,
         role: other.role,
         roleName: roleName(other.role),
+        timedRepair: !!room.shiftId && other.timedRepairShiftId === room.shiftId,
         isHost: other.id === room.hostId,
         x: Math.round(other.x),
         y: Math.round(other.y),
